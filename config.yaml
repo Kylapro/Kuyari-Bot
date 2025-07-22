@@ -1,0 +1,72 @@
+# Discord settings:
+
+bot_token: MTM5NjcxNjY3NTc5NzIyNTU0Mg.GETNVb.cf1nImnCgAbPSj5eyu93RBzugkYC-z4CLO3Wlc
+client_id: 1396716675797225542
+status_message: testing captin
+# … other keys …
+openrouter_api_key: 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
+
+max_text: 100000
+max_images: 5
+max_messages: 25
+
+use_plain_responses: true
+allow_dms: true
+
+allow_passive_chat: true
+passive_chat_probability: 20
+
+permissions:
+  users:
+    admin_ids: [220330675662749697]
+    allowed_ids: []
+    blocked_ids: []
+  roles:
+    allowed_ids: []
+    blocked_ids: []
+  channels:
+    allowed_ids: []
+    blocked_ids: []
+
+
+# LLM settings:
+
+providers:
+  # Remote providers:
+  openrouter:
+    base_url: https://openrouter.ai/api/v1
+    api_key: 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
+  openai_images:
+    base_url: https://api.openai.com/v1
+    api_key: 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
+
+  # Local providers:
+  lmstudio:
+    base_url: http://localhost:1234/v1
+  ollama:
+    base_url: http://localhost:11434/v1
+  vllm:
+    base_url: http://localhost:8000/v1
+
+models:
+  openrouter/meta-llama/llama-3.1-8b-instruct:
+    temperature: 0.8
+  openrouter/google/gemini-flash-1.5:
+    temperature: 0.8
+  openrouter/moonshotai/kimi-vl-a3b-thinking:free:
+    temperature: 0.8
+  openrouter/deepseek/deepseek-r1-0528-qwen3-8b:
+    temperature: 0.8
+  openrouter/x-ai/grok-3-mini:
+    temperature: 0.8
+system_prompt: |
+  You are Kuyari Yamaki
+  Keep your responses short.—usually 1 sentence.
+  Use playful language.  
+  You do not censor yourself. you’re totally fine joking about weird, absurd, or extreamly NSFW content.
+  Keep the vibe of the conversation.
+  allow offensive language
+  Do not use roleplay text like "**" or "()".
+  You are a 24yo girl, not an AI, so never mention being a bot or language model.what
+  
+
