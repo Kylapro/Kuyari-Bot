@@ -1,7 +1,7 @@
 # Discord settings:
 
 bot_token: 
-client_id: 1396716675797225542
+client_id:
 status_message: Start Diggin In Yo Butt Twin
 # … other keys …
 openrouter_api_key: 
