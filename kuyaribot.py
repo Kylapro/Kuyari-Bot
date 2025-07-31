@@ -3,6 +3,7 @@ from base64 import b64encode
 from dataclasses import dataclass, field
 from datetime import datetime
 import logging
+import re
 from typing import Any, Literal, Optional
 
 import random
@@ -47,6 +48,54 @@ activity = discord.CustomActivity(name=(config["status_message"] or "github.com/
 discord_bot = commands.Bot(intents=intents, activity=activity, command_prefix=None)
 
 httpx_client = httpx.AsyncClient()
+
+
+async def google_image_search(query: str) -> Optional[str]:
+    """Return the first image URL from Google Custom Search."""
+    google_key = config.get("google_api_key")
+    google_cx = config.get("google_cse_id")
+
+    if not google_key or not google_cx:
+        return None
+
+    try:
+        resp = await httpx_client.get(
+            "https://www.googleapis.com/customsearch/v1",
+            params=dict(q=query, searchType="image", num=1, key=google_key, cx=google_cx),
+        )
+        data = resp.json()
+        items = data.get("items") or []
+        return items[0]["link"] if items else None
+    except Exception:
+        logging.exception("Error searching Google Images")
+        return None
+
+
+IMAGE_REQUEST_PATTERNS = [
+    re.compile(r"^(?:image|picture|pic|photo)[: ]+(?P<query>.+)", re.I),
+    re.compile(r"(?:send|show|find|get).*?(?:image|picture|pic|photo) of (?P<query>.+)", re.I),
+    re.compile(r"(?:image|picture|pic|photo) of (?P<query>.+)", re.I),
+]
+
+
+async def maybe_handle_image_request(msg: discord.Message) -> bool:
+    """Check if message requests an image and respond with one if so."""
+    if msg.content.startswith("/"):
+        return False
+
+    for pattern in IMAGE_REQUEST_PATTERNS:
+        if match := pattern.search(msg.content):
+            query = match.group("query").strip()
+            url = await google_image_search(query)
+            if url:
+                embed = discord.Embed(title=query)
+                embed.set_image(url=url)
+                await msg.reply(embed=embed)
+            else:
+                await msg.reply("No images found." if config.get("google_api_key") and config.get("google_cse_id") else "Google search is not configured.")
+            return True
+
+    return False
 
 
 @dataclass
@@ -194,6 +243,9 @@ async def on_message(new_msg: discord.Message) -> None:
     is_bad_channel = not is_good_channel or any(id in blocked_channel_ids for id in channel_ids)
 
     if is_bad_user or is_bad_channel:
+        return
+
+    if await maybe_handle_image_request(new_msg):
         return
 
     provider_slash_model = curr_model
