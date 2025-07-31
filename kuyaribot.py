@@ -1,8 +1,3 @@
-import os
-
-import uuid
-from diffusers import StableDiffusionPipeline
-import torch
 import asyncio
 from base64 import b64encode
 from dataclasses import dataclass, field
@@ -10,6 +5,7 @@ from datetime import datetime
 import logging
 from typing import Any, Literal, Optional
 
+import random
 import discord
 from discord.app_commands import Choice
 from discord.ext import commands
@@ -52,34 +48,6 @@ discord_bot = commands.Bot(intents=intents, activity=activity, command_prefix=No
 
 httpx_client = httpx.AsyncClient()
 
-model_id = "sd-legacy/stable-diffusion-v1-5"
-pipe = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16)
-pipe = pipe.to("cuda")
-
-TOKEN = open('TOKEN', 'r').read()
-
-intents.messages = True
-
-client = discord.Client(intents=intents)
-
-@client.event
-async def on_message(message):
-    if message.author == client.user:
-        return
-
-    if message.content.startswith('!gen '):
-        await message.channel.send(f'Generating image for prompt "{message.content[5:]}"...')
-        
-        filename = f"{uuid.uuid4()}.png"
-        
-        image = pipe(message.content[5:]).images[0]
-        image.save(filename)
-        
-        with open(filename, 'rb') as f:
-            picture = discord.File(f)
-            await message.channel.send(file=picture)
-        
-        os.remove(filename)
 
 @dataclass
 class MsgNode:
@@ -141,8 +109,20 @@ async def on_message(new_msg: discord.Message) -> None:
 
     is_dm = new_msg.channel.type == discord.ChannelType.private
 
-    if (not is_dm and discord_bot.user not in new_msg.mentions) or new_msg.author.bot:
+    if new_msg.author.bot:
         return
+
+    should_respond_passively = False
+    if not is_dm and discord_bot.user not in new_msg.mentions:
+        config = await asyncio.to_thread(get_config)
+        allow_passive = config.get("allow_passive_chat", False)
+        chance = config.get("passive_chat_probability", 0.0)
+
+        if allow_passive and random.random() < chance:
+            should_respond_passively = True
+
+        if not should_respond_passively:
+            return
 
     role_ids = set(role.id for role in getattr(new_msg.author, "roles", ()))
     channel_ids = set(filter(None, (new_msg.channel.id, getattr(new_msg.channel, "parent_id", None), getattr(new_msg.channel, "category_id", None))))
@@ -376,6 +356,3 @@ try:
     asyncio.run(main())
 except KeyboardInterrupt:
     pass
-
-
-client.run(TOKEN)
