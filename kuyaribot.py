@@ -95,6 +95,7 @@ async def model_autocomplete(interaction: discord.Interaction, curr_str: str) ->
     return choices
 
 
+
 @discord_bot.event
 async def on_ready() -> None:
     if client_id := config["client_id"]:
@@ -263,6 +264,20 @@ async def on_message(new_msg: discord.Message) -> None:
 
         messages.append(dict(role="system", content=system_prompt))
 
+    reasoning_instruction = "Please reason step by step before giving the final answer."
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            if isinstance(msg["content"], list):
+                for part in msg["content"]:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        part["text"] += "\n\n" + reasoning_instruction
+                        break
+                else:
+                    msg["content"].insert(0, {"type": "text", "text": reasoning_instruction})
+            else:
+                msg["content"] += "\n\n" + reasoning_instruction
+            break
+
     # Generate and send response message(s) (can be multiple if response is long)
     curr_content = finish_reason = edit_task = None
     response_msgs = []
@@ -274,7 +289,6 @@ async def on_message(new_msg: discord.Message) -> None:
 
     use_plain_responses = config.get("use_plain_responses", False)
     max_message_length = 2000 if use_plain_responses else (4096 - len(STREAMING_INDICATOR))
-
     kwargs = dict(model=model, messages=messages[::-1], stream=True, extra_headers=extra_headers, extra_query=extra_query, extra_body=extra_body)
     try:
         async with new_msg.channel.typing():
