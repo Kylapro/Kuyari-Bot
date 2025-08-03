@@ -105,6 +105,32 @@ async def generate_image_bytes(prompt: str) -> bytes:
     return decoder(data)
 
 
+async def generate_music_bytes(prompt: str, *, duration: int = 20) -> bytes:
+    """Generate music using the Stability Audio API."""
+    provider_config = config["providers"].get("stable_diffusion", {})
+    api_key = provider_config.get("api_key")
+    base_url = provider_config.get("base_url")
+    if not api_key or not base_url:
+        raise RuntimeError("Music generation is not configured.")
+
+    # Stable Audio accepts multipart/form-data with at least one file field
+    data = {"prompt": prompt, "duration": str(duration), "model": "stable-audio-2.5"}
+    files = {"none": ""}
+
+    resp = await httpx_client.post(
+        f"{base_url}/v2beta/audio/stable-audio-2/text-to-audio",
+        headers={"Authorization": f"Bearer {api_key}", "accept": "audio/*"},
+        data=data,
+        files=files,
+    )
+    try:
+        resp.raise_for_status()
+    except httpx.HTTPStatusError:
+        logging.error("Stable Audio API error %s: %s", resp.status_code, resp.text)
+        raise
+    return resp.content
+
+
 GENERATE_IMAGE_PATTERNS = [
     re.compile(r"(?:generate|create|make|draw|imagine).*?(?:image|picture|pic|photo) of (?P<query>.+)", re.I),
     re.compile(r"^(?:please )?(?:generate|create|make|draw|imagine) (?P<query>.+)", re.I),
@@ -311,6 +337,32 @@ async def imagine_command(interaction: discord.Interaction, *, prompt: str) -> N
 
     await interaction.response.send_message(
         file=file, embed=embed, ephemeral=(interaction.channel.type == discord.ChannelType.private)
+    )
+
+
+@discord_bot.tree.command(name="music", description="Generate music from a prompt")
+async def music_command(interaction: discord.Interaction, *, prompt: str, duration: int = 20) -> None:
+    """Generate an audio clip using the Stable Audio API."""
+    try:
+        audio_bytes = await generate_music_bytes(prompt, duration=duration)
+    except RuntimeError:
+        await interaction.response.send_message(
+            "Music generation is not configured.",
+            ephemeral=(interaction.channel.type == discord.ChannelType.private),
+        )
+        return
+    except Exception:
+        logging.exception("Error generating music")
+        await interaction.response.send_message(
+            "Failed to generate music.",
+            ephemeral=(interaction.channel.type == discord.ChannelType.private),
+        )
+        return
+
+    file = discord.File(BytesIO(audio_bytes), filename="music.mp3")
+
+    await interaction.response.send_message(
+        file=file, ephemeral=(interaction.channel.type == discord.ChannelType.private)
     )
 
 
