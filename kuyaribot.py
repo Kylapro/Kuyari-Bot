@@ -197,9 +197,12 @@ async def engine_command(interaction: discord.Interaction, engine: Optional[str]
 
     provider_config = config["providers"].setdefault("stable_diffusion", {})
     curr_engine = provider_config.get("engine", "stable-diffusion-xl-1024-v1-0")
+    engines = provider_config.get("engines", [])
 
     if engine in (None, curr_engine):
         output = f"Current engine: `{curr_engine}`"
+        if engines:
+            output += f"\nAvailable engines: {', '.join(engines)}"
     else:
         if interaction.user.id in config["permissions"]["users"]["admin_ids"]:
             provider_config["engine"] = engine
@@ -211,6 +214,29 @@ async def engine_command(interaction: discord.Interaction, engine: Optional[str]
     await interaction.response.send_message(
         output, ephemeral=(interaction.channel.type == discord.ChannelType.private)
     )
+
+
+@engine_command.autocomplete("engine")
+async def engine_autocomplete(interaction: discord.Interaction, curr_str: str) -> list[Choice[str]]:
+    global config
+
+    if curr_str == "":
+        config = await asyncio.to_thread(get_config)
+
+    provider_config = config["providers"].get("stable_diffusion", {})
+    curr_engine = provider_config.get("engine", "")
+    engines = provider_config.get("engines", [])
+
+    choices = [
+        Choice(name=f"○ {eng}", value=eng)
+        for eng in engines
+        if eng != curr_engine and curr_str.lower() in eng.lower()
+    ][:24]
+
+    if curr_engine and curr_str.lower() in curr_engine.lower():
+        choices.append(Choice(name=f"◉ {curr_engine} (current)", value=curr_engine))
+
+    return choices
 
 
 @discord_bot.tree.command(name="image", description="Search Google images")
