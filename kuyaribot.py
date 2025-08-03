@@ -80,14 +80,15 @@ async def generate_image_bytes(prompt: str) -> bytes:
     if not api_key or not base_url:
         raise RuntimeError("Image generation is not configured.")
 
+    url = f"{base_url.rstrip('/')}/{engine.lstrip('/')}"
     resp = await httpx_client.post(
-        f"{base_url}{engine}",
+        url,
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
-        json={"text_prompts": [{"text": prompt}]},
+        json={"prompt": prompt, "output_format": "png"},
     )
     resp.raise_for_status()
     data = resp.json()
-    return b64decode(data["artifacts"][0]["base64"])
+    return b64decode(data["image"])
 
 
 GENERATE_IMAGE_PATTERNS = [
