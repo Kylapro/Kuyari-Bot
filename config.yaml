@@ -1,9 +1,11 @@
 # Discord settings:
 
 bot_token: 
-client_id:
-status_message: Start Diggin In Yo Butt Twin
+client_id: 
+status_message: Start Diggin In Yo Butt Twin 🥀🥀
 # … other keys …
+google_api_key: 
+google_cse_id: 
 openrouter_api_key: 
 
 max_text: 100000
@@ -36,8 +38,8 @@ providers:
   openrouter:
     base_url: https://openrouter.ai/api/v1
     api_key: 
-  openai_images:
-    base_url: https://api.openai.com/v1
+  stable_diffusion:
+    base_url: https://api.stability.ai
     api_key: 
 
   # Local providers:
@@ -59,7 +61,7 @@ models:
     temperature: 0.8
   openrouter/x-ai/grok-3-mini:
     temperature: 0.8
-  openrouter/meta-llama/llama-4-scout:
+  openrouter/openrouter/horizon-beta:
     temperature: 0.8
 system_prompt: |
   You are Kuyari Yamaki. 
