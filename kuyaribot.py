@@ -76,11 +76,12 @@ async def generate_image_bytes(prompt: str) -> bytes:
     provider_config = config["providers"].get("stable_diffusion", {})
     api_key = provider_config.get("api_key")
     base_url = provider_config.get("base_url")
+    engine = provider_config.get("engine", "v2beta/stable-image/generate/sd3")
     if not api_key or not base_url:
         raise RuntimeError("Image generation is not configured.")
 
     resp = await httpx_client.post(
-        f"{base_url}/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image",
+        f"{base_url}{engine}",
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
         json={"text_prompts": [{"text": prompt}]},
     )
@@ -187,6 +188,28 @@ async def model_autocomplete(interaction: discord.Interaction, curr_str: str) ->
 
     return choices
 
+
+
+@discord_bot.tree.command(name="engine", description="View or switch the Stable Diffusion engine")
+async def engine_command(interaction: discord.Interaction, engine: Optional[str] = None) -> None:
+    global config
+
+    provider_config = config["providers"].setdefault("stable_diffusion", {})
+    curr_engine = provider_config.get("engine", "stable-diffusion-xl-1024-v1-0")
+
+    if engine in (None, curr_engine):
+        output = f"Current engine: `{curr_engine}`"
+    else:
+        if interaction.user.id in config["permissions"]["users"]["admin_ids"]:
+            provider_config["engine"] = engine
+            output = f"Engine switched to: `{engine}`"
+            logging.info(output)
+        else:
+            output = "You don't have permission to change the engine."
+
+    await interaction.response.send_message(
+        output, ephemeral=(interaction.channel.type == discord.ChannelType.private)
+    )
 
 
 @discord_bot.tree.command(name="image", description="Search Google images")
