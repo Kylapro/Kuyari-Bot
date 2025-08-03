@@ -1,11 +1,12 @@
 import asyncio
-from base64 import b64encode
+from base64 import b64encode, b64decode
 from dataclasses import dataclass, field
 from datetime import datetime
 import logging
 import re
 from typing import Any, Literal, Optional
 
+from io import BytesIO
 import random
 import discord
 from discord.app_commands import Choice
@@ -71,7 +72,33 @@ async def google_image_search(query: str) -> Optional[str]:
         return None
 
 
-IMAGE_REQUEST_PATTERNS = [
+async def generate_image_bytes(prompt: str) -> bytes:
+    provider_config = config["providers"].get("stable_diffusion", {})
+    api_key = provider_config.get("api_key")
+    base_url = provider_config.get("base_url")
+    if not api_key or not base_url:
+        raise RuntimeError("Image generation is not configured.")
+
+    resp = await httpx_client.post(
+        f"{base_url}/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image",
+        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        json={"text_prompts": [{"text": prompt}]},
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return b64decode(data["artifacts"][0]["base64"])
+
+
+GENERATE_IMAGE_PATTERNS = [
+    re.compile(r"(?:generate|create|make|draw|imagine).*?(?:image|picture|pic|photo) of (?P<query>.+)", re.I),
+    re.compile(r"^(?:please )?(?:generate|create|make|draw|imagine) (?P<query>.+)", re.I),
+]
+
+
+GOOGLE_IMAGE_PATTERNS = [
+    re.compile(r"^(?:image|picture|pic|photo)[: ]+(?P<query>.+)", re.I),
+    re.compile(r"(?:send|show|find|get).*?(?:image|picture|pic|photo) of (?P<query>.+)", re.I),
+    re.compile(r"(?:image|picture|pic|photo) of (?P<query>.+)", re.I),
     re.compile(r"^(?:image|picture|pic|photo)[: ]+(?P<query>.+)", re.I),
     re.compile(r"(?:send|show|find|get).*?(?:image|picture|pic|photo) of (?P<query>.+)", re.I),
     re.compile(r"(?:image|picture|pic|photo) of (?P<query>.+)", re.I),
@@ -83,7 +110,24 @@ async def maybe_handle_image_request(msg: discord.Message) -> bool:
     if msg.content.startswith("/"):
         return False
 
-    for pattern in IMAGE_REQUEST_PATTERNS:
+    for pattern in GENERATE_IMAGE_PATTERNS:
+        if match := pattern.search(msg.content):
+            prompt = match.group("query").strip()
+            try:
+                image_bytes = await generate_image_bytes(prompt)
+            except RuntimeError:
+                await msg.reply("Image generation is not configured.")
+            except Exception:
+                logging.exception("Error generating image")
+                await msg.reply("Failed to generate image.")
+            else:
+                file = discord.File(BytesIO(image_bytes), filename="image.png")
+                embed = discord.Embed(title=prompt)
+                embed.set_image(url="attachment://image.png")
+                await msg.reply(file=file, embed=embed)
+            return True
+
+    for pattern in GOOGLE_IMAGE_PATTERNS:
         if match := pattern.search(msg.content):
             query = match.group("query").strip()
             url = await google_image_search(query)
@@ -187,6 +231,34 @@ async def image_command(interaction: discord.Interaction, *, query: str) -> None
 
     await interaction.response.send_message(
         embed=embed, ephemeral=(interaction.channel.type == discord.ChannelType.private)
+    )
+
+
+@discord_bot.tree.command(name="imagine", description="Generate an image from a prompt")
+async def imagine_command(interaction: discord.Interaction, *, prompt: str) -> None:
+    """Generate an image using the Stable Diffusion API."""
+    try:
+        image_bytes = await generate_image_bytes(prompt)
+    except RuntimeError:
+        await interaction.response.send_message(
+            "Image generation is not configured.",
+            ephemeral=(interaction.channel.type == discord.ChannelType.private),
+        )
+        return
+    except Exception:
+        logging.exception("Error generating image")
+        await interaction.response.send_message(
+            "Failed to generate image.",
+            ephemeral=(interaction.channel.type == discord.ChannelType.private),
+        )
+        return
+
+    file = discord.File(BytesIO(image_bytes), filename="image.png")
+    embed = discord.Embed(title=prompt)
+    embed.set_image(url="attachment://image.png")
+
+    await interaction.response.send_message(
+        file=file, embed=embed, ephemeral=(interaction.channel.type == discord.ChannelType.private)
     )
 
 
