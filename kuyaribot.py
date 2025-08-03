@@ -131,6 +131,38 @@ async def generate_music_bytes(prompt: str, *, duration: int = 20) -> bytes:
     return resp.content
 
 
+GENERATE_MUSIC_PATTERNS = [
+    re.compile(
+        r"(?:generate|create|make|compose|write|produce).*?(?:music|song|audio) ?(?:about|of|on|for)? (?P<query>.+)",
+        re.I,
+    ),
+    re.compile(r"^(?:music|song|audio)[: ]+(?P<query>.+)", re.I),
+]
+
+
+async def maybe_handle_music_request(msg: discord.Message) -> bool:
+    """Check if message requests music and respond with an audio clip if so."""
+    if msg.content.startswith("/"):
+        return False
+
+    for pattern in GENERATE_MUSIC_PATTERNS:
+        if match := pattern.search(msg.content):
+            prompt = match.group("query").strip()
+            try:
+                audio_bytes = await generate_music_bytes(prompt)
+            except RuntimeError:
+                await msg.reply("Music generation is not configured.")
+            except Exception:
+                logging.exception("Error generating music")
+                await msg.reply("Failed to generate music.")
+            else:
+                file = discord.File(BytesIO(audio_bytes), filename="music.mp3")
+                await msg.reply(file=file)
+            return True
+
+    return False
+
+
 GENERATE_IMAGE_PATTERNS = [
     re.compile(r"(?:generate|create|make|draw|imagine).*?(?:image|picture|pic|photo) of (?P<query>.+)", re.I),
     re.compile(r"^(?:please )?(?:generate|create|make|draw|imagine) (?P<query>.+)", re.I),
@@ -421,7 +453,7 @@ async def on_message(new_msg: discord.Message) -> None:
     if is_bad_user or is_bad_channel:
         return
 
-    if await maybe_handle_image_request(new_msg):
+    if await maybe_handle_music_request(new_msg) or await maybe_handle_image_request(new_msg):
         return
 
     provider_slash_model = curr_model
