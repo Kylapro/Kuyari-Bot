@@ -41,10 +41,15 @@ providers:
   stable_diffusion:
     base_url: https://api.stability.ai
     api_key: 
-    engine: v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image
-    engine: v2beta/stable-image/generate/sd3
-    engine: v2beta/stable-image/generate/ultra
-    engine: v2beta/stable-image/generate/core
+    engines:
+        v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image:
+            temperature: 0.8
+        v2beta/stable-image/generate/sd3:
+            temperature: 0.8
+        v2beta/stable-image/generate/ultra:
+            temperature: 0.8
+        v2beta/stable-image/generate/core:
+            temperature: 0.8
 
   # Local providers:
   lmstudio:
