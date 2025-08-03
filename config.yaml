@@ -1,7 +1,7 @@
 # Discord settings:
 
 bot_token: 
-client_id:
+client_id: 
 status_message: Start Diggin In Yo Butt Twin 🥀🥀
 # … other keys …
 google_api_key: 
@@ -49,6 +49,12 @@ providers:
     base_url: http://localhost:11434/v1
   vllm:
     base_url: http://localhost:8000/v1
+
+engines:
+  stable-diffusion-xl-1024-v1-0: /v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image
+  ultra: /v2beta/stable-image/generate/ultra
+  sd3: /v2beta/stable-image/generate/sd3
+  core: /v2beta/stable-image/generate/core
 
 models:
   openrouter/meta-llama/llama-3.3-70b-instruct:
