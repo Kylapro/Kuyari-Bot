@@ -83,20 +83,18 @@ async def generate_image_bytes(prompt: str) -> bytes:
     if not engine_path:
         raise RuntimeError("No engine configured.")
 
-    if engine_path.startswith("/v2beta"):
-        resp = await httpx_client.post(
-            f"{base_url}{engine_path}",
-            headers={"Authorization": f"Bearer {api_key}", "Accept": "image/png"},
-            data={"prompt": prompt},
-        )
-        resp.raise_for_status()
-        return resp.content
-
     payload: dict[str, Any] = {"text_prompts": [{"text": prompt}]}
+    decoder = lambda data: b64decode(data["artifacts"][0]["base64"])
+    req_kwargs: dict[str, Any] = {"json": payload}
+    if engine_path.startswith("/v2beta"):
+        payload = {"prompt": prompt, "mode": "text-to-image", "aspect_ratio": "1:1"}
+        decoder = lambda data: b64decode(data["image"])
+        req_kwargs = {"files": {k: (None, v) for k, v in payload.items()}}
+
     resp = await httpx_client.post(
         f"{base_url}{engine_path}",
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
-        json=payload,
+        **req_kwargs,
     )
     try:
         resp.raise_for_status()
@@ -104,7 +102,7 @@ async def generate_image_bytes(prompt: str) -> bytes:
         logging.error("Stable Diffusion API error %s: %s", resp.status_code, resp.text)
         raise
     data = resp.json()
-    return b64decode(data["artifacts"][0]["base64"])
+    return decoder(data)
 
 
 GENERATE_IMAGE_PATTERNS = [
