@@ -48,7 +48,7 @@ intents.message_content = True
 activity = discord.CustomActivity(name=(config["status_message"] or "github.com/jakobdylanc/llmcord")[:128])
 discord_bot = commands.Bot(intents=intents, activity=activity, command_prefix=None)
 
-httpx_client = httpx.AsyncClient(timeout=httpx.Timeout(60.0))
+httpx_client = httpx.AsyncClient()
 
 
 async def google_image_search(query: str) -> Optional[str]:
@@ -76,19 +76,17 @@ async def generate_image_bytes(prompt: str) -> bytes:
     provider_config = config["providers"].get("stable_diffusion", {})
     api_key = provider_config.get("api_key")
     base_url = provider_config.get("base_url")
-    engine = provider_config.get("engine", "v2beta/stable-image/generate/sd3")
     if not api_key or not base_url:
         raise RuntimeError("Image generation is not configured.")
 
-    url = f"{base_url.rstrip('/')}/{engine.lstrip('/')}"
     resp = await httpx_client.post(
-        url,
+        f"{base_url}/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image",
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
-        json={"prompt": prompt, "output_format": "png"},
+        json={"text_prompts": [{"text": prompt}]},
     )
     resp.raise_for_status()
     data = resp.json()
-    return b64decode(data["image"])
+    return b64decode(data["artifacts"][0]["base64"])
 
 
 GENERATE_IMAGE_PATTERNS = [
@@ -189,54 +187,6 @@ async def model_autocomplete(interaction: discord.Interaction, curr_str: str) ->
 
     return choices
 
-
-
-@discord_bot.tree.command(name="engine", description="View or switch the Stable Diffusion engine")
-async def engine_command(interaction: discord.Interaction, engine: Optional[str] = None) -> None:
-    global config
-
-    provider_config = config["providers"].setdefault("stable_diffusion", {})
-    curr_engine = provider_config.get("engine", "stable-diffusion-xl-1024-v1-0")
-    engines = provider_config.get("engines", [])
-
-    if engine in (None, curr_engine):
-        output = f"Current engine: `{curr_engine}`"
-        if engines:
-            output += f"\nAvailable engines: {', '.join(engines)}"
-    else:
-        if interaction.user.id in config["permissions"]["users"]["admin_ids"]:
-            provider_config["engine"] = engine
-            output = f"Engine switched to: `{engine}`"
-            logging.info(output)
-        else:
-            output = "You don't have permission to change the engine."
-
-    await interaction.response.send_message(
-        output, ephemeral=(interaction.channel.type == discord.ChannelType.private)
-    )
-
-
-@engine_command.autocomplete("engine")
-async def engine_autocomplete(interaction: discord.Interaction, curr_str: str) -> list[Choice[str]]:
-    global config
-
-    if curr_str == "":
-        config = await asyncio.to_thread(get_config)
-
-    provider_config = config["providers"].get("stable_diffusion", {})
-    curr_engine = provider_config.get("engine", "")
-    engines = provider_config.get("engines", [])
-
-    choices = [
-        Choice(name=f"○ {eng}", value=eng)
-        for eng in engines
-        if eng != curr_engine and curr_str.lower() in eng.lower()
-    ][:24]
-
-    if curr_engine and curr_str.lower() in curr_engine.lower():
-        choices.append(Choice(name=f"◉ {curr_engine} (current)", value=curr_engine))
-
-    return choices
 
 
 @discord_bot.tree.command(name="image", description="Search Google images")
