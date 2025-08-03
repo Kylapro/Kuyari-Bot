@@ -49,7 +49,7 @@ intents.message_content = True
 activity = discord.CustomActivity(name=(config["status_message"] or "github.com/jakobdylanc/llmcord")[:128])
 discord_bot = commands.Bot(intents=intents, activity=activity, command_prefix=None)
 
-httpx_client = httpx.AsyncClient()
+httpx_client = httpx.AsyncClient(timeout=120.0)
 
 
 async def google_image_search(query: str) -> Optional[str]:
