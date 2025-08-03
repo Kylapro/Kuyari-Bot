@@ -39,6 +39,7 @@ def get_config(filename: str = "config.yaml") -> dict[str, Any]:
 
 config = get_config()
 curr_model = next(iter(config["models"]))
+curr_engine = next(iter(config["engines"]))
 
 msg_nodes = {}
 last_task_time = 0
@@ -78,15 +79,24 @@ async def generate_image_bytes(prompt: str) -> bytes:
     base_url = provider_config.get("base_url")
     if not api_key or not base_url:
         raise RuntimeError("Image generation is not configured.")
+    engine_path = config["engines"].get(curr_engine)
+    if not engine_path:
+        raise RuntimeError("No engine configured.")
+
+    payload: dict[str, Any] = {"text_prompts": [{"text": prompt}]}
+    decoder = lambda data: b64decode(data["artifacts"][0]["base64"])
+    if engine_path.startswith("/v2beta"):
+        payload = {"prompt": prompt}
+        decoder = lambda data: b64decode(data["image"])
 
     resp = await httpx_client.post(
-        f"{base_url}/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image",
+        f"{base_url}{engine_path}",
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
-        json={"text_prompts": [{"text": prompt}]},
+        json=payload,
     )
     resp.raise_for_status()
     data = resp.json()
-    return b64decode(data["artifacts"][0]["base64"])
+    return decoder(data)
 
 
 GENERATE_IMAGE_PATTERNS = [
@@ -156,6 +166,42 @@ class MsgNode:
     parent_msg: Optional[discord.Message] = None
 
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+
+@discord_bot.tree.command(name="engine", description="View or switch the current Stability AI engine")
+async def engine_command(interaction: discord.Interaction, engine: str) -> None:
+    global curr_engine
+
+    if engine == curr_engine:
+        output = f"Current engine: `{curr_engine}`"
+    else:
+        if user_is_admin := interaction.user.id in config["permissions"]["users"]["admin_ids"]:
+            curr_engine = engine
+            output = f"Engine switched to: `{engine}`"
+            logging.info(output)
+        else:
+            output = "You don't have permission to change the engine."
+
+    await interaction.response.send_message(output, ephemeral=(interaction.channel.type == discord.ChannelType.private))
+
+
+@engine_command.autocomplete("engine")
+async def engine_autocomplete(interaction: discord.Interaction, curr_str: str) -> list[Choice[str]]:
+    global config
+
+    if curr_str == "":
+        config = await asyncio.to_thread(get_config)
+
+    choices = [
+        Choice(name=f"○ {engine}", value=engine)
+        for engine in config["engines"]
+        if engine != curr_engine and curr_str.lower() in engine.lower()
+    ][:24]
+    choices += [
+        Choice(name=f"◉ {curr_engine} (current)", value=curr_engine)
+    ] if curr_str.lower() in curr_engine.lower() else []
+
+    return choices
 
 
 @discord_bot.tree.command(name="model", description="View or switch the current model")
