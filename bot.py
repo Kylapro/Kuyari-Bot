@@ -3,6 +3,7 @@ from base64 import b64decode
 from dataclasses import dataclass, field
 import logging
 from typing import Any, Literal, Optional
+import os
 
 import discord
 from discord.ext import commands
