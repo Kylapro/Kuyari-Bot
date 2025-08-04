@@ -55,20 +55,21 @@ engines:
   ultra: /v2beta/stable-image/generate/ultra
   sd3: /v2beta/stable-image/generate/sd3
   core: /v2beta/stable-image/generate/core
-
+  
 models:
+  openrouter/google/gemini-2.5-flash:
+    temperature: 0.7
   openrouter/meta-llama/llama-3.3-70b-instruct:
-    temperature: 0.8
-  openrouter/google/gemini-2.5-flash-lite:
-    temperature: 0.8
+    temperature: 0.7
   openrouter/moonshotai/kimi-vl-a3b-thinking:free:
-    temperature: 0.8
+    temperature: 0.7
   openrouter/deepseek/deepseek-r1-0528-qwen3-8b:
-    temperature: 0.8
+    temperature: 0.7
   openrouter/x-ai/grok-3-mini:
-    temperature: 0.8
+    temperature: 0.7
   openrouter/openrouter/horizon-beta:
-    temperature: 0.8
+    temperature: 0.7
+    
 system_prompt: |
   You are Kuyari Yamaki. 
   Keep your responses short.—usually 1 sentence.  
