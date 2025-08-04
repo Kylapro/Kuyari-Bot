@@ -33,6 +33,9 @@ permissions:
     blocked_ids: []
 
 
+music:
+  dj_role_id:
+
 # LLM settings:
 
 providers:
