@@ -12,6 +12,9 @@ max_text: 100000
 max_images: 5
 max_messages: 25
 
+reasoning:
+  effort: high
+
 use_plain_responses: true
 allow_dms: true
 

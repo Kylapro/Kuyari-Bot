@@ -471,6 +471,10 @@ async def on_message(new_msg: discord.Message) -> None:
     extra_query = provider_config.get("extra_query", None)
     extra_body = (provider_config.get("extra_body", None) or {}) | (model_parameters or {}) or None
 
+    reasoning_config = config.get("reasoning")
+    if reasoning_config:
+        extra_body = {**(extra_body or {}), "reasoning": reasoning_config}
+
     accept_images = any(x in provider_slash_model.lower() for x in VISION_MODEL_TAGS)
     accept_usernames = any(x in provider_slash_model.lower() for x in PROVIDERS_SUPPORTING_USERNAMES)
 
@@ -584,9 +588,10 @@ async def on_message(new_msg: discord.Message) -> None:
             break
 
     # Generate and send response message(s) (can be multiple if response is long)
-    curr_content = finish_reason = edit_task = None
+    curr_content = curr_reasoning = finish_reason = edit_task = None
     response_msgs = []
     response_contents = []
+    reasoning_contents = ""
 
     embed = discord.Embed()
     for warning in sorted(user_warnings):
@@ -608,6 +613,7 @@ async def on_message(new_msg: discord.Message) -> None:
 
                 prev_content = curr_content or ""
                 curr_content = choice.delta.content or ""
+                curr_reasoning = getattr(choice.delta, "reasoning", "") or ""
 
                 new_content = prev_content if finish_reason == None else (prev_content + curr_content)
 
@@ -618,6 +624,8 @@ async def on_message(new_msg: discord.Message) -> None:
                     response_contents.append("")
 
                 response_contents[-1] += new_content
+                if curr_reasoning:
+                    reasoning_contents += curr_reasoning
 
                 if not use_plain_responses:
                     ready_to_edit = (edit_task == None or edit_task.done()) and datetime.now().timestamp() - last_task_time >= EDIT_DELAY_SECONDS
@@ -643,6 +651,15 @@ async def on_message(new_msg: discord.Message) -> None:
                             edit_task = asyncio.create_task(response_msgs[-1].edit(embed=embed))
 
                         last_task_time = datetime.now().timestamp()
+
+            if reasoning_contents:
+                response_contents.append(f"Reasoning:\n{reasoning_contents}")
+                if not use_plain_responses:
+                    embed.add_field(name="Reasoning", value=reasoning_contents, inline=False)
+                    if edit_task != None:
+                        await edit_task
+                    if response_msgs:
+                        await response_msgs[-1].edit(embed=embed)
 
             if use_plain_responses:
                 for content in response_contents:
