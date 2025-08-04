@@ -16,6 +16,7 @@ import yaml
 
 from cogs.config import ConfigCog
 from cogs.media import MediaCog
+from cogs.music import MusicCog
 
 logging.basicConfig(
     level=logging.INFO,
@@ -535,6 +536,7 @@ async def main() -> None:
     discord_bot.generate_music_bytes = generate_music_bytes
     await discord_bot.add_cog(ConfigCog(discord_bot))
     await discord_bot.add_cog(MediaCog(discord_bot))
+    await discord_bot.add_cog(MusicCog(discord_bot))
     await discord_bot.start(discord_bot.config["bot_token"])
 
 
