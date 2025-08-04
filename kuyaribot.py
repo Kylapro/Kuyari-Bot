@@ -9,7 +9,6 @@ from typing import Any, Literal, Optional
 from io import BytesIO
 import random
 import discord
-from discord.app_commands import Choice
 from discord.ext import commands
 import httpx
 from openai import AsyncOpenAI
@@ -38,8 +37,6 @@ def get_config(filename: str = "config.yaml") -> dict[str, Any]:
 
 
 config = get_config()
-curr_model = next(iter(config["models"]))
-curr_engine = next(iter(config["engines"]))
 
 msg_nodes = {}
 last_task_time = 0
@@ -51,17 +48,26 @@ discord_bot = commands.Bot(intents=intents, activity=activity, command_prefix=No
 
 httpx_client = httpx.AsyncClient(timeout=120.0)
 
+# Expose shared state on the bot instance for access within cogs
+discord_bot.config = config
+discord_bot.curr_model = next(iter(config["models"]))
+discord_bot.curr_engine = next(iter(config["engines"]))
+discord_bot.httpx_client = httpx_client
+discord_bot.get_config = get_config
+discord_bot.generate_image_bytes = generate_image_bytes
+discord_bot.generate_music_bytes = generate_music_bytes
+
 
 async def google_image_search(query: str) -> Optional[str]:
     """Return the first image URL from Google Custom Search."""
-    google_key = config.get("google_api_key")
-    google_cx = config.get("google_cse_id")
+    google_key = discord_bot.config.get("google_api_key")
+    google_cx = discord_bot.config.get("google_cse_id")
 
     if not google_key or not google_cx:
         return None
 
     try:
-        resp = await httpx_client.get(
+        resp = await discord_bot.httpx_client.get(
             "https://www.googleapis.com/customsearch/v1",
             params=dict(q=query, searchType="image", num=1, key=google_key, cx=google_cx),
         )
@@ -74,12 +80,12 @@ async def google_image_search(query: str) -> Optional[str]:
 
 
 async def generate_image_bytes(prompt: str) -> bytes:
-    provider_config = config["providers"].get("stable_diffusion", {})
+    provider_config = discord_bot.config["providers"].get("stable_diffusion", {})
     api_key = provider_config.get("api_key")
     base_url = provider_config.get("base_url")
     if not api_key or not base_url:
         raise RuntimeError("Image generation is not configured.")
-    engine_path = config["engines"].get(curr_engine)
+    engine_path = discord_bot.config["engines"].get(discord_bot.curr_engine)
     if not engine_path:
         raise RuntimeError("No engine configured.")
 
@@ -91,7 +97,7 @@ async def generate_image_bytes(prompt: str) -> bytes:
         decoder = lambda data: b64decode(data["image"])
         req_kwargs = {"files": {k: (None, v) for k, v in payload.items()}}
 
-    resp = await httpx_client.post(
+    resp = await discord_bot.httpx_client.post(
         f"{base_url}{engine_path}",
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
         **req_kwargs,
@@ -107,7 +113,7 @@ async def generate_image_bytes(prompt: str) -> bytes:
 
 async def generate_music_bytes(prompt: str, *, duration: int = 20) -> bytes:
     """Generate music using the Stability Audio API."""
-    provider_config = config["providers"].get("stable_diffusion", {})
+    provider_config = discord_bot.config["providers"].get("stable_diffusion", {})
     api_key = provider_config.get("api_key")
     base_url = provider_config.get("base_url")
     if not api_key or not base_url:
@@ -117,7 +123,7 @@ async def generate_music_bytes(prompt: str, *, duration: int = 20) -> bytes:
     data = {"prompt": prompt, "duration": str(duration), "model": "stable-audio-2.5"}
     files = {"none": ""}
 
-    resp = await httpx_client.post(
+    resp = await discord_bot.httpx_client.post(
         f"{base_url}/v2beta/audio/stable-audio-2/text-to-audio",
         headers={"Authorization": f"Bearer {api_key}", "accept": "audio/*"},
         data=data,
@@ -210,7 +216,9 @@ async def maybe_handle_image_request(msg: discord.Message) -> bool:
                 embed.set_image(url=url)
                 await msg.reply(embed=embed)
             else:
-                await msg.reply("No images found." if config.get("google_api_key") and config.get("google_cse_id") else "Google search is not configured.")
+                await msg.reply(
+                    "No images found." if discord_bot.config.get("google_api_key") and discord_bot.config.get("google_cse_id") else "Google search is not configured."
+                )
             return True
 
     return False
@@ -232,178 +240,9 @@ class MsgNode:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
-@discord_bot.tree.command(name="engine", description="View or switch the current Stability AI engine")
-async def engine_command(interaction: discord.Interaction, engine: str) -> None:
-    global curr_engine
-
-    if engine == curr_engine:
-        output = f"Current engine: `{curr_engine}`"
-    else:
-        if user_is_admin := interaction.user.id in config["permissions"]["users"]["admin_ids"]:
-            curr_engine = engine
-            output = f"Engine switched to: `{engine}`"
-            logging.info(output)
-        else:
-            output = "You don't have permission to change the engine."
-
-    await interaction.response.send_message(output, ephemeral=(interaction.channel.type == discord.ChannelType.private))
-
-
-@engine_command.autocomplete("engine")
-async def engine_autocomplete(interaction: discord.Interaction, curr_str: str) -> list[Choice[str]]:
-    global config
-
-    if curr_str == "":
-        config = await asyncio.to_thread(get_config)
-
-    choices = [
-        Choice(name=f"○ {engine}", value=engine)
-        for engine in config["engines"]
-        if engine != curr_engine and curr_str.lower() in engine.lower()
-    ][:24]
-    choices += [
-        Choice(name=f"◉ {curr_engine} (current)", value=curr_engine)
-    ] if curr_str.lower() in curr_engine.lower() else []
-
-    return choices
-
-
-@discord_bot.tree.command(name="model", description="View or switch the current model")
-async def model_command(interaction: discord.Interaction, model: str) -> None:
-    global curr_model
-
-    if model == curr_model:
-        output = f"Current model: `{curr_model}`"
-    else:
-        if user_is_admin := interaction.user.id in config["permissions"]["users"]["admin_ids"]:
-            curr_model = model
-            output = f"Model switched to: `{model}`"
-            logging.info(output)
-        else:
-            output = "You don't have permission to change the model."
-
-    await interaction.response.send_message(output, ephemeral=(interaction.channel.type == discord.ChannelType.private))
-
-
-@model_command.autocomplete("model")
-async def model_autocomplete(interaction: discord.Interaction, curr_str: str) -> list[Choice[str]]:
-    global config
-
-    if curr_str == "":
-        config = await asyncio.to_thread(get_config)
-
-    choices = [Choice(name=f"○ {model}", value=model) for model in config["models"] if model != curr_model and curr_str.lower() in model.lower()][:24]
-    choices += [Choice(name=f"◉ {curr_model} (current)", value=curr_model)] if curr_str.lower() in curr_model.lower() else []
-
-    return choices
-
-
-
-@discord_bot.tree.command(name="image", description="Search Google images")
-async def image_command(interaction: discord.Interaction, *, query: str) -> None:
-    """Search Google Images using the Custom Search API."""
-    global config
-
-    google_key = config.get("google_api_key")
-    google_cx = config.get("google_cse_id")
-
-    if not google_key or not google_cx:
-        await interaction.response.send_message(
-            "Google search is not configured.",
-            ephemeral=(interaction.channel.type == discord.ChannelType.private),
-        )
-        return
-
-    try:
-        resp = await httpx_client.get(
-            "https://www.googleapis.com/customsearch/v1",
-            params=dict(q=query, searchType="image", num=1, key=google_key, cx=google_cx),
-        )
-        data = resp.json()
-        items = data.get("items") or []
-    except Exception:
-        logging.exception("Error searching Google Images")
-        await interaction.response.send_message(
-            "Failed to search images.",
-            ephemeral=(interaction.channel.type == discord.ChannelType.private),
-        )
-        return
-
-    if not items:
-        await interaction.response.send_message(
-            "No images found.",
-            ephemeral=(interaction.channel.type == discord.ChannelType.private),
-        )
-        return
-
-    embed = discord.Embed(title=query)
-    embed.set_image(url=items[0]["link"])
-
-    await interaction.response.send_message(
-        embed=embed, ephemeral=(interaction.channel.type == discord.ChannelType.private)
-    )
-
-
-@discord_bot.tree.command(name="imagine", description="Generate an image from a prompt")
-async def imagine_command(interaction: discord.Interaction, *, prompt: str) -> None:
-    """Generate an image using the Stable Diffusion API."""
-    try:
-        image_bytes = await generate_image_bytes(prompt)
-    except RuntimeError:
-        await interaction.response.send_message(
-            "Image generation is not configured.",
-            ephemeral=(interaction.channel.type == discord.ChannelType.private),
-        )
-        return
-    except Exception:
-        logging.exception("Error generating image")
-        await interaction.response.send_message(
-            "Failed to generate image.",
-            ephemeral=(interaction.channel.type == discord.ChannelType.private),
-        )
-        return
-
-    file = discord.File(BytesIO(image_bytes), filename="image.png")
-    embed = discord.Embed(title=prompt)
-    embed.set_image(url="attachment://image.png")
-
-    await interaction.response.send_message(
-        file=file, embed=embed, ephemeral=(interaction.channel.type == discord.ChannelType.private)
-    )
-
-
-@discord_bot.tree.command(name="music", description="Generate music from a prompt")
-async def music_command(interaction: discord.Interaction, *, prompt: str, duration: int = 20) -> None:
-    """Generate an audio clip using the Stable Audio API."""
-    await interaction.response.defer(
-        thinking=True, ephemeral=(interaction.channel.type == discord.ChannelType.private)
-    )
-    try:
-        audio_bytes = await generate_music_bytes(prompt, duration=duration)
-    except RuntimeError:
-        await interaction.followup.send(
-            "Music generation is not configured.",
-            ephemeral=(interaction.channel.type == discord.ChannelType.private),
-        )
-        return
-    except Exception:
-        logging.exception("Error generating music")
-        await interaction.followup.send(
-            "Failed to generate music.",
-            ephemeral=(interaction.channel.type == discord.ChannelType.private),
-        )
-        return
-
-    file = discord.File(BytesIO(audio_bytes), filename="music.mp3")
-
-    await interaction.followup.send(
-        file=file, ephemeral=(interaction.channel.type == discord.ChannelType.private)
-    )
-
-
 @discord_bot.event
 async def on_ready() -> None:
-    if client_id := config["client_id"]:
+    if client_id := discord_bot.config["client_id"]:
         logging.info(f"\n\nBOT INVITE URL:\nhttps://discord.com/oauth2/authorize?client_id={client_id}&permissions=412317273088&scope=bot\n")
 
     await discord_bot.tree.sync()
@@ -420,7 +259,8 @@ async def on_message(new_msg: discord.Message) -> None:
 
     should_respond_passively = False
     if not is_dm and discord_bot.user not in new_msg.mentions:
-        config = await asyncio.to_thread(get_config)
+        discord_bot.config = await asyncio.to_thread(discord_bot.get_config)
+        config = discord_bot.config
         allow_passive = config.get("allow_passive_chat", False)
         chance = config.get("passive_chat_probability", 0.0)
 
@@ -433,7 +273,8 @@ async def on_message(new_msg: discord.Message) -> None:
     role_ids = set(role.id for role in getattr(new_msg.author, "roles", ()))
     channel_ids = set(filter(None, (new_msg.channel.id, getattr(new_msg.channel, "parent_id", None), getattr(new_msg.channel, "category_id", None))))
 
-    config = await asyncio.to_thread(get_config)
+    discord_bot.config = await asyncio.to_thread(discord_bot.get_config)
+    config = discord_bot.config
 
     allow_dms = config.get("allow_dms", True)
 
@@ -459,7 +300,7 @@ async def on_message(new_msg: discord.Message) -> None:
     if await maybe_handle_music_request(new_msg) or await maybe_handle_image_request(new_msg):
         return
 
-    provider_slash_model = curr_model
+    provider_slash_model = discord_bot.curr_model
     provider, model = provider_slash_model.removesuffix(":vision").split("/", 1)
 
     provider_config = config["providers"][provider]
@@ -499,7 +340,7 @@ async def on_message(new_msg: discord.Message) -> None:
 
                 good_attachments = [att for att in curr_msg.attachments if att.content_type and any(att.content_type.startswith(x) for x in ("text", "image"))]
 
-                attachment_responses = await asyncio.gather(*[httpx_client.get(att.url) for att in good_attachments])
+                attachment_responses = await asyncio.gather(*[discord_bot.httpx_client.get(att.url) for att in good_attachments])
 
                 curr_node.text = "\n".join(
                     ([cleaned_content] if cleaned_content else [])
@@ -688,10 +529,13 @@ async def on_message(new_msg: discord.Message) -> None:
 
 
 async def main() -> None:
-    await discord_bot.start(config["bot_token"])
+    await discord_bot.load_extension("cogs.admin")
+    await discord_bot.load_extension("cogs.media")
+    await discord_bot.start(discord_bot.config["bot_token"])
 
 
-try:
-    asyncio.run(main())
-except KeyboardInterrupt:
-    pass
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
