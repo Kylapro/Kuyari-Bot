@@ -96,10 +96,29 @@ class MusicCog(commands.Cog):
                 "Join a voice channel first.", ephemeral=True
             )
             return
+        try:
+            song = await self._create_source(url)
+        except yt_dlp.utils.DownloadError:
+            await interaction.response.send_message(
+                "Could not process the provided URL (possibly DRM-protected or unsupported).",
+                ephemeral=True,
+            )
+            return
+        except Exception:
+            await interaction.response.send_message(
+                "An unexpected error occurred while processing the URL.",
+                ephemeral=True,
+            )
+            return
         voice = interaction.guild.voice_client
         if not voice:
-            voice = await interaction.user.voice.channel.connect()
-        song = await self._create_source(url)
+            try:
+                voice = await interaction.user.voice.channel.connect()
+            except discord.DiscordException:
+                await interaction.response.send_message(
+                    "Failed to connect to the voice channel.", ephemeral=True
+                )
+                return
         queue = await self._get_queue(interaction.guild_id)
         queue.append(song)
         await interaction.response.send_message(
