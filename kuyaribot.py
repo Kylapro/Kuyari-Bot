@@ -375,30 +375,27 @@ async def imagine_command(interaction: discord.Interaction, *, prompt: str) -> N
 @discord_bot.tree.command(name="music", description="Generate music from a prompt")
 async def music_command(interaction: discord.Interaction, *, prompt: str, duration: int = 20) -> None:
     """Generate an audio clip using the Stable Audio API."""
-    await interaction.response.defer(
-        thinking=True, ephemeral=(interaction.channel.type == discord.ChannelType.private)
-    )
+    is_private = interaction.channel.type == discord.ChannelType.private
+    await interaction.response.defer(thinking=True, ephemeral=not is_private)
     try:
         audio_bytes = await generate_music_bytes(prompt, duration=duration)
     except RuntimeError:
         await interaction.followup.send(
             "Music generation is not configured.",
-            ephemeral=(interaction.channel.type == discord.ChannelType.private),
+            ephemeral=not is_private,
         )
         return
     except Exception:
         logging.exception("Error generating music")
         await interaction.followup.send(
             "Failed to generate music.",
-            ephemeral=(interaction.channel.type == discord.ChannelType.private),
+            ephemeral=not is_private,
         )
         return
 
     file = discord.File(BytesIO(audio_bytes), filename="music.mp3")
 
-    await interaction.followup.send(
-        file=file, ephemeral=(interaction.channel.type == discord.ChannelType.private)
-    )
+    await interaction.followup.send(file=file, ephemeral=not is_private)
 
 
 @discord_bot.event
