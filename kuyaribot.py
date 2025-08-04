@@ -275,7 +275,7 @@ async def model_command(interaction: discord.Interaction, model: str) -> None:
     if model == curr_model:
         output = f"Current model: `{curr_model}`"
     else:
-        if user_is_admin := interaction.user.id in config["permissions"]["users"]["admin_ids"]:
+        if interaction.user.id in config["permissions"]["users"]["admin_ids"]:
             curr_model = model
             output = f"Model switched to: `{model}`"
             logging.info(output)
@@ -487,11 +487,11 @@ async def on_message(new_msg: discord.Message) -> None:
     user_warnings = set()
     curr_msg = new_msg
 
-    while curr_msg != None and len(messages) < max_messages:
+    while curr_msg is not None and len(messages) < max_messages:
         curr_node = msg_nodes.setdefault(curr_msg.id, MsgNode())
 
         async with curr_node.lock:
-            if curr_node.text == None:
+            if curr_node.text is None:
                 cleaned_content = curr_msg.content.removeprefix(discord_bot.user.mention).lstrip()
 
                 good_attachments = [att for att in curr_msg.attachments if att.content_type and any(att.content_type.startswith(x) for x in ("text", "image"))]
@@ -518,7 +518,7 @@ async def on_message(new_msg: discord.Message) -> None:
 
                 try:
                     if (
-                        curr_msg.reference == None
+                        curr_msg.reference is None
                         and discord_bot.user.mention not in curr_msg.content
                         and (prev_msg_in_channel := ([m async for m in curr_msg.channel.history(before=curr_msg, limit=1)] or [None])[0])
                         and prev_msg_in_channel.type in (discord.MessageType.default, discord.MessageType.reply)
@@ -527,7 +527,7 @@ async def on_message(new_msg: discord.Message) -> None:
                         curr_node.parent_msg = prev_msg_in_channel
                     else:
                         is_public_thread = curr_msg.channel.type == discord.ChannelType.public_thread
-                        parent_is_thread_start = is_public_thread and curr_msg.reference == None and curr_msg.channel.parent.type == discord.ChannelType.text
+                        parent_is_thread_start = is_public_thread and curr_msg.reference is None and curr_msg.channel.parent.type == discord.ChannelType.text
 
                         if parent_msg_id := curr_msg.channel.id if parent_is_thread_start else getattr(curr_msg.reference, "message_id", None):
                             if parent_is_thread_start:
@@ -546,7 +546,7 @@ async def on_message(new_msg: discord.Message) -> None:
 
             if content != "":
                 message = dict(content=content, role=curr_node.role)
-                if accept_usernames and curr_node.user_id != None:
+                if accept_usernames and curr_node.user_id is not None:
                     message["name"] = str(curr_node.user_id)
 
                 messages.append(message)
@@ -557,7 +557,7 @@ async def on_message(new_msg: discord.Message) -> None:
                 user_warnings.add(f"⚠️ Max {max_images} image{'' if max_images == 1 else 's'} per message" if max_images > 0 else "⚠️ Can't see images")
             if curr_node.has_bad_attachments:
                 user_warnings.add("⚠️ Unsupported attachments")
-            if curr_node.fetch_parent_failed or (curr_node.parent_msg != None and len(messages) == max_messages):
+            if curr_node.fetch_parent_failed or (curr_node.parent_msg is not None and len(messages) == max_messages):
                 user_warnings.add(f"⚠️ Only using last {len(messages)} message{'' if len(messages) == 1 else 's'}")
 
             curr_msg = curr_node.parent_msg
@@ -603,7 +603,7 @@ async def on_message(new_msg: discord.Message) -> None:
     try:
         async with new_msg.channel.typing():
             async for chunk in await openai_client.chat.completions.create(**kwargs):
-                if finish_reason != None:
+                if finish_reason is not None:
                     break
 
                 if not (choice := chunk.choices[0] if chunk.choices else None):
@@ -615,7 +615,7 @@ async def on_message(new_msg: discord.Message) -> None:
                 curr_content = choice.delta.content or ""
                 curr_reasoning = getattr(choice.delta, "reasoning", "") or ""
 
-                new_content = prev_content if finish_reason == None else (prev_content + curr_content)
+                new_content = prev_content if finish_reason is None else (prev_content + curr_content)
 
                 if response_contents == [] and new_content == "":
                     continue
@@ -628,13 +628,13 @@ async def on_message(new_msg: discord.Message) -> None:
                     reasoning_contents += curr_reasoning
 
                 if not use_plain_responses:
-                    ready_to_edit = (edit_task == None or edit_task.done()) and datetime.now().timestamp() - last_task_time >= EDIT_DELAY_SECONDS
-                    msg_split_incoming = finish_reason == None and len(response_contents[-1] + curr_content) > max_message_length
-                    is_final_edit = finish_reason != None or msg_split_incoming
-                    is_good_finish = finish_reason != None and finish_reason.lower() in ("stop", "end_turn")
+                    ready_to_edit = (edit_task is None or edit_task.done()) and datetime.now().timestamp() - last_task_time >= EDIT_DELAY_SECONDS
+                    msg_split_incoming = finish_reason is None and len(response_contents[-1] + curr_content) > max_message_length
+                    is_final_edit = finish_reason is not None or msg_split_incoming
+                    is_good_finish = finish_reason is not None and finish_reason.lower() in ("stop", "end_turn")
 
                     if start_next_msg or ready_to_edit or is_final_edit:
-                        if edit_task != None:
+                        if edit_task is not None:
                             await edit_task
 
                         embed.description = response_contents[-1] if is_final_edit else (response_contents[-1] + STREAMING_INDICATOR)
