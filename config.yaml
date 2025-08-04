@@ -11,6 +11,8 @@ openrouter_api_key:
 max_text: 100000
 max_images: 5
 max_messages: 25
+reasoning:
+  effort: medium
 
 use_plain_responses: true
 allow_dms: true
