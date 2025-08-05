@@ -31,7 +31,9 @@ permissions:
   channels:
     allowed_ids: []
     blocked_ids: []
-
+music:
+  dj_role_id:
+  cookies_browser:  # e.g., chrome or firefox for age-restricted videos
 
 # LLM settings:
 

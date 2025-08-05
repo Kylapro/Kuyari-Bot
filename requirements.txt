@@ -3,5 +3,6 @@ httpx
 openai
 pyyaml
 yt-dlp
+browser-cookie3
 PyNaCl
 ffmpeg
