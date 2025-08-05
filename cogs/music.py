@@ -242,6 +242,20 @@ class MusicCog(commands.Cog):
                 ephemeral=True,
             )
 
+    @app_commands.command(name="nowplaying", description="Show the currently playing song")
+    async def nowplaying_command(self, interaction: discord.Interaction) -> None:
+        queue = await self._get_queue(interaction.guild_id)
+        vc = interaction.guild.voice_client
+        if vc and queue and (vc.is_playing() or vc.is_paused()):
+            desc = f"Now playing: {queue[0].title}"
+        else:
+            desc = "Nothing is playing."
+        await self._safe_send(
+            interaction,
+            desc,
+            ephemeral=(interaction.channel.type == discord.ChannelType.private),
+        )
+
     @app_commands.command(name="queue", description="View the music queue")
     async def queue_command(self, interaction: discord.Interaction) -> None:
         queue = await self._get_queue(interaction.guild_id)
