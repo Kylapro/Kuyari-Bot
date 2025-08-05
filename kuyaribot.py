@@ -288,6 +288,7 @@ async def analyze_video_labels_bytes(data: bytes) -> list[str]:
                     _format("shot", shot_label.entity, segment, categories)
                 )
 
+        logging.info("Video intelligence labels: %s", labels)
         return labels
 
     return await asyncio.to_thread(_annotate)
