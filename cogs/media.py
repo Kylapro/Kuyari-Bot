@@ -54,53 +54,54 @@ class MediaCog(commands.Cog):
     @app_commands.command(name="imagine", description="Generate an image from a prompt")
     async def imagine_command(self, interaction: discord.Interaction, *, prompt: str) -> None:
         """Generate an image using the Stable Diffusion API."""
+        ephemeral = interaction.channel.type != discord.ChannelType.private
+        try:
+            await interaction.response.defer(thinking=True, ephemeral=ephemeral)
+        except discord.NotFound:
+            logging.warning("Interaction no longer valid for imagine command")
+            return
         try:
             image_bytes = await self.bot.generate_image_bytes(prompt)
         except RuntimeError:
-            await interaction.response.send_message(
-                "Image generation is not configured.",
-                ephemeral=(interaction.channel.type == discord.ChannelType.private),
+            await interaction.followup.send(
+                "Image generation is not configured.", ephemeral=ephemeral
             )
             return
         except Exception:
             logging.exception("Error generating image")
-            await interaction.response.send_message(
-                "Failed to generate image.",
-                ephemeral=(interaction.channel.type == discord.ChannelType.private),
+            await interaction.followup.send(
+                "Failed to generate image.", ephemeral=ephemeral
             )
             return
 
         file = discord.File(BytesIO(image_bytes), filename="image.png")
         embed = discord.Embed(title=prompt)
         embed.set_image(url="attachment://image.png")
-        await interaction.response.send_message(
-            file=file, embed=embed, ephemeral=(interaction.channel.type == discord.ChannelType.private)
-        )
+        await interaction.followup.send(file=file, embed=embed, ephemeral=ephemeral)
 
     @app_commands.command(name="music", description="Generate music from a prompt")
     async def music_command(self, interaction: discord.Interaction, *, prompt: str, duration: int = 20) -> None:
         """Generate an audio clip using the Stable Audio API."""
-        await interaction.response.defer(
-            thinking=True, ephemeral=(interaction.channel.type == discord.ChannelType.private)
-        )
+        ephemeral = interaction.channel.type != discord.ChannelType.private
+        try:
+            await interaction.response.defer(thinking=True, ephemeral=ephemeral)
+        except discord.NotFound:
+            logging.warning("Interaction no longer valid for music command")
+            return
         try:
             audio_bytes = await self.bot.generate_music_bytes(prompt, duration=duration)
         except RuntimeError:
             await interaction.followup.send(
-                "Music generation is not configured.",
-                ephemeral=(interaction.channel.type == discord.ChannelType.private),
+                "Music generation is not configured.", ephemeral=ephemeral
             )
             return
         except Exception:
             logging.exception("Error generating music")
             await interaction.followup.send(
-                "Failed to generate music.",
-                ephemeral=(interaction.channel.type == discord.ChannelType.private),
+                "Failed to generate music.", ephemeral=ephemeral
             )
             return
 
         file = discord.File(BytesIO(audio_bytes), filename="music.mp3")
-        await interaction.followup.send(
-            file=file, ephemeral=(interaction.channel.type == discord.ChannelType.private)
-        )
+        await interaction.followup.send(file=file, ephemeral=ephemeral)
 
