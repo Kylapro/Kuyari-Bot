@@ -371,7 +371,10 @@ async def on_message(new_msg: discord.Message) -> None:
     if new_msg.author.bot:
         return
 
-    await discord_bot.process_commands(new_msg)
+    ctx = await discord_bot.get_context(new_msg)
+    if ctx.command is not None:
+        await discord_bot.invoke(ctx)
+        return
 
     is_dm = new_msg.channel.type == discord.ChannelType.private
 
