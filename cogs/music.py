@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import dataclass
 from typing import Optional
+import logging
 
 import discord
 from discord import app_commands
@@ -117,13 +118,44 @@ class MusicCog(commands.Cog):
         await interaction.response.defer(ephemeral=ephemeral, thinking=True)
         try:
             song = await self._create_source(url)
-        except yt_dlp.utils.DownloadError:
-            await self._safe_send(
-                interaction,
-                "Could not process the provided URL (possibly DRM-protected or unsupported).",
-                ephemeral=ephemeral,
-            )
-            return
+        except yt_dlp.utils.DownloadError as exc:
+            google_key = self.bot.config.get("google_api_key")
+            google_cx = self.bot.config.get("google_cse_id")
+            fallback_song: Optional[Song] = None
+            if google_key and google_cx and "drm" in str(exc).lower():
+                try:
+                    resp = await self.bot.httpx_client.get(
+                        "https://www.googleapis.com/customsearch/v1",
+                        params=dict(q=url, num=1, key=google_key, cx=google_cx),
+                    )
+                    data = resp.json()
+                    items = data.get("items") or []
+                    logging.info("Google search results for %s: %s", url, items)
+                    if items:
+                        top = items[0]
+                        query_text = top.get("title") or top.get("snippet")
+                        logging.info("Using query text for YouTube search: %s", query_text)
+                        await self._safe_send(
+                            interaction,
+                            f"Google top result: {top.get('title')} - {top.get('snippet')}",
+                            ephemeral=True,
+                        )
+                        if query_text:
+                            try:
+                                fallback_song = await self._create_source(f"ytsearch:{query_text}")
+                            except yt_dlp.utils.DownloadError:
+                                fallback_song = None
+                except Exception:
+                    logging.exception("Error searching for DRM-protected URL")
+            if fallback_song:
+                song = fallback_song
+            else:
+                await self._safe_send(
+                    interaction,
+                    "Could not process the provided URL (possibly DRM-protected or unsupported).",
+                    ephemeral=ephemeral,
+                )
+                return
         except discord.ClientException:
             await self._safe_send(
                 interaction,
