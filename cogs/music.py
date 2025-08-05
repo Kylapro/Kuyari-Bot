@@ -78,6 +78,29 @@ class MusicCog(commands.Cog):
         match = re.search(r"<title>(.*?)</title>", resp.text, re.I | re.S)
         return match.group(1).strip() if match else None
 
+    async def _search_youtube(
+        self, query: str, *, per_page: int, page: int
+    ) -> list[tuple[str, str]]:
+        """Search YouTube and return a list of (title, url) tuples."""
+        loop = asyncio.get_running_loop()
+        count = per_page * page
+        data = await loop.run_in_executor(
+            None,
+            lambda: self.ytdl.extract_info(
+                f"ytsearch{count}:{query}", download=False
+            ),
+        )
+        entries = data.get("entries") or []
+        start = (page - 1) * per_page
+        results: list[tuple[str, str]] = []
+        for entry in entries[start:start + per_page]:
+            if entry is None:
+                continue
+            title = entry.get("title") or "Unknown"
+            url = entry.get("webpage_url") or f"https://www.youtube.com/watch?v={entry.get('id')}"
+            results.append((title, url))
+        return results
+
     def _play_next(self, guild_id: int) -> None:
         queue = self.queues.get(guild_id)
         if not queue:
@@ -113,6 +136,40 @@ class MusicCog(commands.Cog):
             pass
 
     # ---- Commands ----
+    @app_commands.command(name="search", description="Search YouTube for music")
+    @app_commands.describe(query="Search terms", page="Results page number")
+    async def search_command(
+        self, interaction: discord.Interaction, query: str, page: int = 1
+    ) -> None:
+        per_page = 5
+        page = max(page, 1)
+        ephemeral = interaction.channel.type == discord.ChannelType.private
+        await interaction.response.defer(ephemeral=ephemeral, thinking=True)
+        try:
+            results = await self._search_youtube(query, per_page=per_page, page=page)
+        except yt_dlp.utils.DownloadError:
+            await self._safe_send(
+                interaction, "Failed to search YouTube.", ephemeral=ephemeral
+            )
+            return
+        except Exception:
+            await self._safe_send(
+                interaction, "An unexpected error occurred.", ephemeral=ephemeral
+            )
+            return
+        if not results:
+            await self._safe_send(
+                interaction, "No results found.", ephemeral=ephemeral
+            )
+            return
+        start_index = (page - 1) * per_page + 1
+        lines = [
+            f"{idx}. [{title}]({url})"
+            for idx, (title, url) in enumerate(results, start=start_index)
+        ]
+        message = f'Search results for "{query}" (page {page}):\n' + "\n".join(lines)
+        await self._safe_send(interaction, message, ephemeral=ephemeral)
+
     @app_commands.command(name="play", description="Queue a song or playlist by URL")
     async def play_command(self, interaction: discord.Interaction, url: str) -> None:
         if not self._has_dj_role(interaction):
