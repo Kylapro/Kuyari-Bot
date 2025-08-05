@@ -6,6 +6,7 @@ status_message: Start Diggin In Yo Butt Twin 🥀🥀
 # … other keys …
 google_api_key: 
 google_cse_id: 
+google_credentials_file: application_default_credentials.json
 openrouter_api_key: 
 
 max_text: 100000
