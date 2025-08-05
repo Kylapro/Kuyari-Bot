@@ -43,20 +43,12 @@ class MusicCog(commands.Cog):
 
     # ---- Helpers ----
     def _has_dj_role(self, interaction: discord.Interaction) -> bool:
-        """Return True if the user has at least one configured DJ role.
-
-        The configuration now supports multiple role IDs under the
-        ``dj_role_ids`` key.  For backward compatibility a single
-        ``dj_role_id`` may also be provided.  If no role IDs are set or the
-        list is empty, no DJ role is required.
-        """
-        role_ids: Optional[list[int]] = self.music_cfg.get("dj_role_ids")
-        if role_ids is None:
-            role_id: Optional[int] = self.music_cfg.get("dj_role_id")
-            role_ids = [role_id] if role_id else []
-        if not role_ids:
-            return True
-        return any(r.id in role_ids for r in interaction.user.roles)
+        role_id: Optional[int] = self.music_cfg.get("dj_role_id")
+        return (
+            role_id is None
+            or role_id == 0
+            or any(r.id == role_id for r in interaction.user.roles)
+        )
 
     async def _create_sources(self, url: str) -> list[Song]:
         loop = asyncio.get_running_loop()
@@ -130,7 +122,7 @@ class MusicCog(commands.Cog):
         if not self._has_dj_role(interaction):
             await self._safe_send(
                 interaction,
-                "You need a DJ role to use this command.",
+                "You need the DJ role to use this command.",
                 ephemeral=True,
             )
             return
@@ -215,7 +207,7 @@ class MusicCog(commands.Cog):
         if not self._has_dj_role(interaction):
             await self._safe_send(
                 interaction,
-                "You need a DJ role to use this command.",
+                "You need the DJ role to use this command.",
                 ephemeral=True,
             )
             return
@@ -235,7 +227,7 @@ class MusicCog(commands.Cog):
         if not self._has_dj_role(interaction):
             await self._safe_send(
                 interaction,
-                "You need a DJ role to use this command.",
+                "You need the DJ role to use this command.",
                 ephemeral=True,
             )
             return
@@ -285,7 +277,7 @@ class MusicCog(commands.Cog):
         if not self._has_dj_role(interaction):
             await self._safe_send(
                 interaction,
-                "You need a DJ role to use this command.",
+                "You need the DJ role to use this command.",
                 ephemeral=True,
             )
             return
@@ -303,7 +295,7 @@ class MusicCog(commands.Cog):
         if not self._has_dj_role(interaction):
             await self._safe_send(
                 interaction,
-                "You need a DJ role to use this command.",
+                "You need the DJ role to use this command.",
                 ephemeral=True,
             )
             return
@@ -327,7 +319,7 @@ class MusicCog(commands.Cog):
         if not self._has_dj_role(interaction):
             await self._safe_send(
                 interaction,
-                "You need a DJ role to use this command.",
+                "You need the DJ role to use this command.",
                 ephemeral=True,
             )
             return
@@ -351,7 +343,7 @@ class MusicCog(commands.Cog):
         if not self._has_dj_role(interaction):
             await self._safe_send(
                 interaction,
-                "You need a DJ role to use this command.",
+                "You need the DJ role to use this command.",
                 ephemeral=True,
             )
             return
@@ -371,7 +363,7 @@ class MusicCog(commands.Cog):
         if not self._has_dj_role(interaction):
             await self._safe_send(
                 interaction,
-                "You need a DJ role to use this command.",
+                "You need the DJ role to use this command.",
                 ephemeral=True,
             )
             return
