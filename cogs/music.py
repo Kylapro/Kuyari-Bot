@@ -1,8 +1,10 @@
 import asyncio
+import re
 from dataclasses import dataclass
 from typing import Optional
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote
 
+import httpx
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -64,41 +66,36 @@ class MusicCog(commands.Cog):
         )
 
     async def _search_alternative(self, url: str) -> Song:
-        parsed = urlparse(url)
         loop = asyncio.get_running_loop()
-        query = ""
-
-        # Attempt to use page metadata to build a better search query
         try:
-            info = await loop.run_in_executor(
-                None,
-                lambda: self.ytdl.extract_info(
-                    url, download=False, process=False
-                ),
-            )
-            query = info.get("title") or info.get("fulltitle") or ""
-        except Exception:
-            pass
+            async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0"}) as client:
+                resp = await client.get(
+                    "https://www.google.com/search", params={"q": url}
+                )
+                resp.raise_for_status()
 
-        if not query:
-            parts = [p for p in parsed.path.split("/") if p]
-            if parsed.query:
-                parts.extend(parsed.query.split("&"))
-            if parts:
-                query = " ".join(map(unquote, parts))
+                match = re.search(r"/url\\?q=([^&]+)&", resp.text)
+                if not match:
+                    raise yt_dlp.utils.DownloadError("No alternative found")
+                top_url = unquote(match.group(1))
 
-        if not query or query in {"", "/"}:
-            query = url
+                try:
+                    page = await client.get(top_url, follow_redirects=True)
+                    page.raise_for_status()
+                    title_match = re.search(
+                        r"<title>(.*?)</title>", page.text, re.IGNORECASE | re.DOTALL
+                    )
+                    query = title_match.group(1).strip() if title_match else top_url
+                except httpx.HTTPError:
+                    query = top_url
+        except httpx.HTTPError:
+            raise yt_dlp.utils.DownloadError("Search failed")
 
         data = await loop.run_in_executor(
-            None,
-            lambda: self.ytdl.extract_info(
-                f"ytsearch:{query}", download=False
-            ),
+            None, lambda: self.ytdl.extract_info(query, download=False)
         )
-        if "entries" not in data or not data["entries"]:
-            raise yt_dlp.utils.DownloadError("No alternative found")
-        data = data["entries"][0]
+        if "entries" in data:
+            data = data["entries"][0]
         return Song(
             source=discord.FFmpegPCMAudio(data["url"], **FFMPEG_OPTS),
             title=data.get("title") or query,
