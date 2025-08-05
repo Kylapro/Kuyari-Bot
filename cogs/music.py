@@ -130,8 +130,16 @@ class MusicCog(commands.Cog):
                     )
                     data = resp.json()
                     items = data.get("items") or []
+                    logging.info("Google search results for %s: %s", url, items)
                     if items:
-                        query_text = items[0].get("snippet") or items[0].get("title")
+                        top = items[0]
+                        query_text = top.get("title") or top.get("snippet")
+                        logging.info("Using query text for YouTube search: %s", query_text)
+                        await self._safe_send(
+                            interaction,
+                            f"Google top result: {top.get('title')} - {top.get('snippet')}",
+                            ephemeral=True,
+                        )
                         if query_text:
                             try:
                                 fallback_song = await self._create_source(f"ytsearch:{query_text}")
