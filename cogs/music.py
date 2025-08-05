@@ -43,13 +43,6 @@ class MusicCog(commands.Cog):
 
     # ---- Helpers ----
     def _has_dj_role(self, interaction: discord.Interaction) -> bool:
-        """Return True if the user has at least one configured DJ role.
-
-        The configuration now supports multiple role IDs under the
-        ``dj_role_ids`` key.  For backward compatibility a single
-        ``dj_role_id`` may also be provided.  If no role IDs are set or the
-        list is empty, no DJ role is required.
-        """
         role_ids: Optional[list[int]] = self.music_cfg.get("dj_role_ids")
         if role_ids is None:
             role_id: Optional[int] = self.music_cfg.get("dj_role_id")
