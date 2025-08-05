@@ -425,6 +425,17 @@ async def on_message(new_msg: discord.Message) -> None:
     if not should_respond:
         allow_passive = config.get("allow_passive_chat", False)
         chance = config.get("passive_chat_probability", 0.0)
+
+        try:
+            chance = float(chance)
+        except (TypeError, ValueError):
+            chance = 0.0
+
+        if chance > 1:
+            chance /= 100.0
+
+        chance = max(0.0, min(chance, 1.0))
+
         if allow_passive and random.random() < chance:
             should_respond = True
 
