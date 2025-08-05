@@ -243,17 +243,36 @@ async def analyze_video_labels_bytes(data: bytes) -> list[str]:
         result = operation.result(timeout=180)
         labels: list[str] = []
         for segment_label in result.annotation_results[0].segment_label_annotations:
-            confidence = segment_label.segments[0].confidence if segment_label.segments else 0.0
-            labels.append(f"{segment_label.entity.description} ({confidence:.2f})")
+            if segment_label.segments:
+                segment = segment_label.segments[0]
+                confidence = segment.confidence
+                start = (
+                    segment.segment.start_time_offset.seconds
+                    + segment.segment.start_time_offset.nanos / 1e9
+                )
+                end = (
+                    segment.segment.end_time_offset.seconds
+                    + segment.segment.end_time_offset.nanos / 1e9
+                )
+                categories = ", ".join(
+                    c.description for c in segment_label.category_entities
+                )
+                category_str = f" | categories: {categories}" if categories else ""
+                labels.append(
+                    f"{segment_label.entity.description} ({confidence:.2f}) "
+                    f"{start:.2f}-{end:.2f}s{category_str}"
+                )
+            else:
+                labels.append(f"{segment_label.entity.description} (0.00)")
         return labels
 
     return await asyncio.to_thread(_annotate)
 
 
-async def maybe_handle_video_request(msg: discord.Message) -> bool:
-    """Check if message requests video analysis and respond with labels if so."""
+async def maybe_handle_video_request(msg: discord.Message) -> tuple[bool, Optional[list[str]]]:
+    """Return video label metadata for LLM consumption, handling errors."""
     if msg.content.startswith("/"):
-        return False
+        return False, None
 
     video_url: Optional[str] = None
     for pattern in ANALYZE_VIDEO_PATTERNS:
@@ -268,7 +287,7 @@ async def maybe_handle_video_request(msg: discord.Message) -> bool:
                 break
 
     if not video_url:
-        return False
+        return False, None
 
     try:
         resp = await discord_bot.httpx_client.get(video_url)
@@ -276,20 +295,16 @@ async def maybe_handle_video_request(msg: discord.Message) -> bool:
     except Exception:
         logging.exception("Error fetching video")
         await msg.reply("Failed to download video.")
-        return True
+        return True, None
 
     try:
         labels = await analyze_video_labels_bytes(resp.content)
     except Exception:
         logging.exception("Error analyzing video")
         await msg.reply("Failed to analyze video.")
-        return True
+        return True, None
 
-    if labels:
-        await msg.reply("Video labels: " + ", ".join(labels[:5]))
-    else:
-        await msg.reply("No labels detected.")
-    return True
+    return False, labels
 
 
 @dataclass
@@ -372,9 +387,19 @@ async def on_message(new_msg: discord.Message) -> None:
     if (
         await maybe_handle_music_request(new_msg)
         or await maybe_handle_image_request(new_msg)
-        or await maybe_handle_video_request(new_msg)
     ):
         return
+
+    handled, video_labels = await maybe_handle_video_request(new_msg)
+    if handled:
+        return
+    video_metadata_text = None
+    if video_labels is not None:
+        video_metadata_text = (
+            "\n".join(f"- {label}" for label in video_labels)
+            if video_labels
+            else "No labels detected."
+        )
 
     provider_slash_model = discord_bot.curr_model
     provider, model = provider_slash_model.removesuffix(":vision").split("/", 1)
@@ -413,6 +438,8 @@ async def on_message(new_msg: discord.Message) -> None:
         async with curr_node.lock:
             if curr_node.text == None:
                 cleaned_content = curr_msg.content.removeprefix(discord_bot.user.mention).lstrip()
+                if curr_msg is new_msg and video_metadata_text:
+                    cleaned_content += f"\n\nVideo metadata:\n{video_metadata_text}"
 
                 good_attachments = [
                     att
