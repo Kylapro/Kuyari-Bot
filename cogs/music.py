@@ -73,22 +73,32 @@ class MusicCog(commands.Cog):
                     "https://www.google.com/search", params={"q": url}
                 )
                 resp.raise_for_status()
+
+                match = re.search(r"/url\\?q=([^&]+)&", resp.text)
+                if not match:
+                    raise yt_dlp.utils.DownloadError("No alternative found")
+                top_url = unquote(match.group(1))
+
+                try:
+                    page = await client.get(top_url, follow_redirects=True)
+                    page.raise_for_status()
+                    title_match = re.search(
+                        r"<title>(.*?)</title>", page.text, re.IGNORECASE | re.DOTALL
+                    )
+                    query = title_match.group(1).strip() if title_match else top_url
+                except httpx.HTTPError:
+                    query = top_url
         except httpx.HTTPError:
             raise yt_dlp.utils.DownloadError("Search failed")
 
-        match = re.search(r"/url\\?q=([^&]+)&", resp.text)
-        if not match:
-            raise yt_dlp.utils.DownloadError("No alternative found")
-        top_url = unquote(match.group(1))
-
         data = await loop.run_in_executor(
-            None, lambda: self.ytdl.extract_info(top_url, download=False)
+            None, lambda: self.ytdl.extract_info(query, download=False)
         )
         if "entries" in data:
             data = data["entries"][0]
         return Song(
             source=discord.FFmpegPCMAudio(data["url"], **FFMPEG_OPTS),
-            title=data.get("title") or top_url,
+            title=data.get("title") or query,
         )
 
     def _play_next(self, guild_id: int) -> None:
