@@ -19,7 +19,7 @@ use_plain_responses: true
 allow_dms: true
 
 allow_passive_chat: true
-passive_chat_probability: 1
+passive_chat_probability: .05
 
 permissions:
   users:
