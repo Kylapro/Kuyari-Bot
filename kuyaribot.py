@@ -233,7 +233,7 @@ async def maybe_handle_image_request(msg: discord.Message) -> bool:
 
 
 async def analyze_video_labels_bytes(data: bytes) -> list[str]:
-    """Analyze video content and return label descriptions."""
+    """Analyze video content and return detailed label descriptions."""
 
     def _annotate() -> list[str]:
         video_client = videointelligence.VideoIntelligenceServiceClient()
@@ -252,22 +252,42 @@ async def analyze_video_labels_bytes(data: bytes) -> list[str]:
             return duration.seconds + duration.nanos / 1e9
 
         labels: list[str] = []
-        for segment_label in result.annotation_results[0].segment_label_annotations:
+        annotations = result.annotation_results[0]
+
+        def _format(prefix: str, entity: Any, segment: Any, categories: str) -> str:
+            confidence = segment.confidence
+            start = _seconds(segment.segment.start_time_offset)
+            end = _seconds(segment.segment.end_time_offset)
+            entity_id = getattr(entity, "entity_id", None)
+            entity_part = f" ({entity_id})" if entity_id else ""
+            category_part = f" | categories: {categories}" if categories else ""
+            return (
+                f"{prefix}: {entity.description}{entity_part} "
+                f"({confidence:.2f}) {start:.2f}-{end:.2f}s{category_part}"
+            )
+
+        for segment_label in annotations.segment_label_annotations:
+            categories = ", ".join(c.description for c in segment_label.category_entities)
             if segment_label.segments:
-                segment = segment_label.segments[0]
-                confidence = segment.confidence
-                start = _seconds(segment.segment.start_time_offset)
-                end = _seconds(segment.segment.end_time_offset)
-                categories = ", ".join(
-                    c.description for c in segment_label.category_entities
-                )
-                category_str = f" | categories: {categories}" if categories else ""
-                labels.append(
-                    f"{segment_label.entity.description} ({confidence:.2f}) "
-                    f"{start:.2f}-{end:.2f}s{category_str}"
-                )
+                for segment in segment_label.segments:
+                    labels.append(
+                        _format("segment", segment_label.entity, segment, categories)
+                    )
             else:
-                labels.append(f"{segment_label.entity.description} (0.00)")
+                entity_id = segment_label.entity.entity_id
+                entity_part = f" ({entity_id})" if entity_id else ""
+                category_part = f" | categories: {categories}" if categories else ""
+                labels.append(
+                    f"segment: {segment_label.entity.description}{entity_part} (0.00) 0.00-0.00s{category_part}"
+                )
+
+        for shot_label in annotations.shot_label_annotations:
+            categories = ", ".join(c.description for c in shot_label.category_entities)
+            for segment in shot_label.segments:
+                labels.append(
+                    _format("shot", shot_label.entity, segment, categories)
+                )
+
         return labels
 
     return await asyncio.to_thread(_annotate)
