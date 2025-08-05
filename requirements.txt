@@ -4,3 +4,4 @@ openai
 pyyaml
 yt-dlp
 PyNaCl
+ffmpeg
