@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import unquote, urlparse
 
 import discord
 from discord import app_commands
@@ -62,6 +63,26 @@ class MusicCog(commands.Cog):
             title=data.get("title") or url,
         )
 
+    async def _search_alternative(self, url: str) -> Song:
+        parsed = urlparse(url)
+        query = unquote(parsed.path)
+        if not query or query in {"", "/"}:
+            query = url
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None,
+            lambda: self.ytdl.extract_info(
+                f"ytsearch:{query}", download=False
+            ),
+        )
+        if "entries" not in data or not data["entries"]:
+            raise yt_dlp.utils.DownloadError("No alternative found")
+        data = data["entries"][0]
+        return Song(
+            source=discord.FFmpegPCMAudio(data["url"], **FFMPEG_OPTS),
+            title=data.get("title") or query,
+        )
+
     def _play_next(self, guild_id: int) -> None:
         queue = self.queues.get(guild_id)
         if not queue:
@@ -115,15 +136,28 @@ class MusicCog(commands.Cog):
             return
         ephemeral = interaction.channel.type == discord.ChannelType.private
         await interaction.response.defer(ephemeral=ephemeral, thinking=True)
+        used_fallback = False
         try:
             song = await self._create_source(url)
-        except yt_dlp.utils.DownloadError:
-            await self._safe_send(
-                interaction,
-                "Could not process the provided URL (possibly DRM-protected or unsupported).",
-                ephemeral=ephemeral,
-            )
-            return
+        except yt_dlp.utils.DownloadError as e:
+            if "drm" in str(e).lower():
+                try:
+                    song = await self._search_alternative(url)
+                    used_fallback = True
+                except Exception:
+                    await self._safe_send(
+                        interaction,
+                        "The provided link appears to be DRM-protected and no alternative could be found.",
+                        ephemeral=ephemeral,
+                    )
+                    return
+            else:
+                await self._safe_send(
+                    interaction,
+                    "Could not process the provided URL (possibly DRM-protected or unsupported).",
+                    ephemeral=ephemeral,
+                )
+                return
         except discord.ClientException:
             await self._safe_send(
                 interaction,
@@ -151,11 +185,10 @@ class MusicCog(commands.Cog):
                 return
         queue = await self._get_queue(interaction.guild_id)
         queue.append(song)
-        await self._safe_send(
-            interaction,
-            f"Enqueued: {song.title}",
-            ephemeral=ephemeral,
-        )
+        message = f"Enqueued: {song.title}"
+        if used_fallback:
+            message += " (alternative source)"
+        await self._safe_send(interaction, message, ephemeral=ephemeral)
         if not voice.is_playing():
             self._play_next(interaction.guild_id)
 
