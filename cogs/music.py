@@ -14,7 +14,7 @@ YTDL_OPTS = {
     "quiet": True,
     "no_warnings": True,
     "default_search": "auto",
-    "noplaylist": True,
+    "noplaylist": False,
 }
 FFMPEG_OPTS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
@@ -51,17 +51,23 @@ class MusicCog(commands.Cog):
             or any(r.id == role_id for r in interaction.user.roles)
         )
 
-    async def _create_source(self, url: str) -> Song:
+    async def _create_sources(self, url: str) -> list[Song]:
         loop = asyncio.get_running_loop()
         data = await loop.run_in_executor(
             None, lambda: self.ytdl.extract_info(url, download=False)
         )
-        if "entries" in data:
-            data = data["entries"][0]
-        return Song(
-            source=discord.FFmpegPCMAudio(data["url"], **FFMPEG_OPTS),
-            title=data.get("title") or url,
-        )
+        entries = data.get("entries") or [data]
+        songs: list[Song] = []
+        for entry in entries:
+            if entry is None:
+                continue
+            songs.append(
+                Song(
+                    source=discord.FFmpegPCMAudio(entry["url"], **FFMPEG_OPTS),
+                    title=entry.get("title") or url,
+                )
+            )
+        return songs
 
     async def _fetch_page_title(self, url: str) -> Optional[str]:
         """Return the page title for a given URL."""
@@ -107,7 +113,7 @@ class MusicCog(commands.Cog):
             pass
 
     # ---- Commands ----
-    @app_commands.command(name="play", description="Queue a song by URL")
+    @app_commands.command(name="play", description="Queue a song or playlist by URL")
     async def play_command(self, interaction: discord.Interaction, url: str) -> None:
         if not self._has_dj_role(interaction):
             await self._safe_send(
@@ -126,14 +132,14 @@ class MusicCog(commands.Cog):
         ephemeral = interaction.channel.type == discord.ChannelType.private
         await interaction.response.defer(ephemeral=ephemeral, thinking=True)
         try:
-            song = await self._create_source(url)
+            songs = await self._create_sources(url)
         except yt_dlp.utils.DownloadError as exc:
-            song = None
+            songs = []
             if "drm" in str(exc).lower():
                 title = await self._fetch_page_title(url)
                 if title:
                     try:
-                        song = await self._create_source(title)
+                        songs = await self._create_sources(title)
                     except yt_dlp.utils.DownloadError:
                         pass
                     except discord.ClientException:
@@ -150,7 +156,7 @@ class MusicCog(commands.Cog):
                             ephemeral=ephemeral,
                         )
                         return
-            if song is None:
+            if not songs:
                 await self._safe_send(
                     interaction,
                     "Could not process the provided URL (possibly DRM-protected or unsupported).",
@@ -183,10 +189,14 @@ class MusicCog(commands.Cog):
                 )
                 return
         queue = await self._get_queue(interaction.guild_id)
-        queue.append(song)
+        queue.extend(songs)
+        if len(songs) == 1:
+            msg = f"Enqueued: {songs[0].title}"
+        else:
+            msg = f"Enqueued {len(songs)} tracks"
         await self._safe_send(
             interaction,
-            f"Enqueued: {song.title}",
+            msg,
             ephemeral=ephemeral,
         )
         if not voice.is_playing():
