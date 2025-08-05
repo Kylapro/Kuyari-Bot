@@ -65,10 +65,31 @@ class MusicCog(commands.Cog):
 
     async def _search_alternative(self, url: str) -> Song:
         parsed = urlparse(url)
-        query = unquote(parsed.path)
+        loop = asyncio.get_running_loop()
+        query = ""
+
+        # Attempt to use page metadata to build a better search query
+        try:
+            info = await loop.run_in_executor(
+                None,
+                lambda: self.ytdl.extract_info(
+                    url, download=False, process=False
+                ),
+            )
+            query = info.get("title") or info.get("fulltitle") or ""
+        except Exception:
+            pass
+
+        if not query:
+            parts = [p for p in parsed.path.split("/") if p]
+            if parsed.query:
+                parts.extend(parsed.query.split("&"))
+            if parts:
+                query = " ".join(map(unquote, parts))
+
         if not query or query in {"", "/"}:
             query = url
-        loop = asyncio.get_running_loop()
+
         data = await loop.run_in_executor(
             None,
             lambda: self.ytdl.extract_info(
