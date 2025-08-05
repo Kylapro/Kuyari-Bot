@@ -5,3 +5,4 @@ services:
     restart: unless-stopped
     volumes:
       - ./:/app:ro
+      - ":ro" #insert firefox cookies path "<instert here>:ro" and remove <>
