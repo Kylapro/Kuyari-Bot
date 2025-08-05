@@ -7,6 +7,7 @@ import re
 from typing import Any, Literal, Optional
 
 from io import BytesIO
+import os
 import random
 import discord
 from discord.ext import commands
@@ -42,6 +43,8 @@ def get_config(filename: str = "config.yaml") -> dict[str, Any]:
 
 
 config = get_config()
+if (cred_file := config.get("google_credentials_file")) and "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = cred_file
 
 msg_nodes = {}
 last_task_time = 0

@@ -4,9 +4,12 @@ bot_token:
 client_id: 
 status_message: Start Diggin In Yo Butt Twin 🥀🥀
 # … other keys …
-google_api_key: 
-google_cse_id: 
-openrouter_api_key: 
+google_api_key:
+google_cse_id:
+# Path to a service account JSON key used for Application Default Credentials
+# or leave blank to rely on gcloud auth
+google_credentials_file:
+openrouter_api_key:
 
 max_text: 100000
 max_images: 5
