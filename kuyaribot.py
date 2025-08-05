@@ -52,7 +52,11 @@ last_task_time = 0
 intents = discord.Intents.all()
 intents.message_content = True
 activity = discord.CustomActivity(name=(config["status_message"] or "github.com/kylapro/Kuyari-Bot")[:128])
-discord_bot = commands.Bot(intents=intents, activity=activity, command_prefix=None)
+discord_bot = commands.Bot(
+    intents=intents,
+    activity=activity,
+    command_prefix=commands.when_mentioned_or(""),
+)
 
 discord_bot.config = config
 discord_bot.curr_model = next(iter(config["models"]))
