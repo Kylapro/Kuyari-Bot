@@ -1,4 +1,5 @@
 import asyncio
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -62,6 +63,15 @@ class MusicCog(commands.Cog):
             title=data.get("title") or url,
         )
 
+    async def _fetch_page_title(self, url: str) -> Optional[str]:
+        """Return the page title for a given URL."""
+        try:
+            resp = await self.bot.httpx_client.get(url)
+        except Exception:
+            return None
+        match = re.search(r"<title>(.*?)</title>", resp.text, re.I | re.S)
+        return match.group(1).strip() if match else None
+
     def _play_next(self, guild_id: int) -> None:
         queue = self.queues.get(guild_id)
         if not queue:
@@ -117,13 +127,36 @@ class MusicCog(commands.Cog):
         await interaction.response.defer(ephemeral=ephemeral, thinking=True)
         try:
             song = await self._create_source(url)
-        except yt_dlp.utils.DownloadError:
-            await self._safe_send(
-                interaction,
-                "Could not process the provided URL (possibly DRM-protected or unsupported).",
-                ephemeral=ephemeral,
-            )
-            return
+        except yt_dlp.utils.DownloadError as exc:
+            song = None
+            if "drm" in str(exc).lower():
+                title = await self._fetch_page_title(url)
+                if title:
+                    try:
+                        song = await self._create_source(title)
+                    except yt_dlp.utils.DownloadError:
+                        pass
+                    except discord.ClientException:
+                        await self._safe_send(
+                            interaction,
+                            "FFmpeg was not found. Please install FFmpeg to use this command.",
+                            ephemeral=ephemeral,
+                        )
+                        return
+                    except Exception:
+                        await self._safe_send(
+                            interaction,
+                            "An unexpected error occurred while processing the URL.",
+                            ephemeral=ephemeral,
+                        )
+                        return
+            if song is None:
+                await self._safe_send(
+                    interaction,
+                    "Could not process the provided URL (possibly DRM-protected or unsupported).",
+                    ephemeral=ephemeral,
+                )
+                return
         except discord.ClientException:
             await self._safe_send(
                 interaction,
