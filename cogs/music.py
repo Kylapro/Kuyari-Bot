@@ -46,15 +46,15 @@ class MusicCog(commands.Cog):
         role_ids = self.music_cfg.get("dj_role_id")
         if not role_ids:
             return True
-        # Allow a single role id or a list of ids
-        if isinstance(role_ids, int):
-            role_ids = {role_ids}
-        else:
-            try:
-                role_ids = {int(r) for r in role_ids}
-            except TypeError:
-                role_ids = {int(role_ids)}
-        return any(r.id in role_ids for r in getattr(interaction.user, "roles", []))
+        # Allow a single role id or a list of ids, including strings or mentions
+        if isinstance(role_ids, (int, str)):
+            role_ids = [role_ids]
+        parsed_ids: set[int] = set()
+        for r in role_ids:
+            match = re.search(r"\d+", str(r))
+            if match:
+                parsed_ids.add(int(match.group()))
+        return any(role.id in parsed_ids for role in getattr(interaction.user, "roles", []))
 
     async def _create_sources(self, url: str) -> list[Song]:
         loop = asyncio.get_running_loop()
