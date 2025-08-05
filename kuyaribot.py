@@ -13,6 +13,7 @@ from discord.ext import commands
 import httpx
 from openai import AsyncOpenAI
 import yaml
+from google.cloud import videointelligence
 
 from cogs.config import ConfigCog
 from cogs.media import MediaCog
@@ -186,6 +187,11 @@ GOOGLE_IMAGE_PATTERNS = [
 ]
 
 
+ANALYZE_VIDEO_PATTERNS = [
+    re.compile(r"(?:analyze|describe|label).*?(?:video|mp4|movie|clip)[: ]+(?P<url>https?://\S+)", re.I),
+]
+
+
 async def maybe_handle_image_request(msg: discord.Message) -> bool:
     """Check if message requests an image and respond with one if so."""
     if msg.content.startswith("/"):
@@ -221,6 +227,69 @@ async def maybe_handle_image_request(msg: discord.Message) -> bool:
             return True
 
     return False
+
+
+async def analyze_video_labels_bytes(data: bytes) -> list[str]:
+    """Analyze video content and return label descriptions."""
+
+    def _annotate() -> list[str]:
+        video_client = videointelligence.VideoIntelligenceServiceClient()
+        operation = video_client.annotate_video(
+            request={
+                "features": [videointelligence.Feature.LABEL_DETECTION],
+                "input_content": data,
+            }
+        )
+        result = operation.result(timeout=180)
+        labels: list[str] = []
+        for segment_label in result.annotation_results[0].segment_label_annotations:
+            confidence = segment_label.segments[0].confidence if segment_label.segments else 0.0
+            labels.append(f"{segment_label.entity.description} ({confidence:.2f})")
+        return labels
+
+    return await asyncio.to_thread(_annotate)
+
+
+async def maybe_handle_video_request(msg: discord.Message) -> bool:
+    """Check if message requests video analysis and respond with labels if so."""
+    if msg.content.startswith("/"):
+        return False
+
+    video_url: Optional[str] = None
+    for pattern in ANALYZE_VIDEO_PATTERNS:
+        if match := pattern.search(msg.content):
+            video_url = match.group("url")
+            break
+
+    if not video_url:
+        for att in msg.attachments:
+            if att.content_type and att.content_type.startswith("video"):
+                video_url = att.url
+                break
+
+    if not video_url:
+        return False
+
+    try:
+        resp = await discord_bot.httpx_client.get(video_url)
+        resp.raise_for_status()
+    except Exception:
+        logging.exception("Error fetching video")
+        await msg.reply("Failed to download video.")
+        return True
+
+    try:
+        labels = await analyze_video_labels_bytes(resp.content)
+    except Exception:
+        logging.exception("Error analyzing video")
+        await msg.reply("Failed to analyze video.")
+        return True
+
+    if labels:
+        await msg.reply("Video labels: " + ", ".join(labels[:5]))
+    else:
+        await msg.reply("No labels detected.")
+    return True
 
 
 @dataclass
@@ -300,7 +369,11 @@ async def on_message(new_msg: discord.Message) -> None:
     if is_bad_user or is_bad_channel:
         return
 
-    if await maybe_handle_music_request(new_msg) or await maybe_handle_image_request(new_msg):
+    if (
+        await maybe_handle_music_request(new_msg)
+        or await maybe_handle_image_request(new_msg)
+        or await maybe_handle_video_request(new_msg)
+    ):
         return
 
     provider_slash_model = discord_bot.curr_model
