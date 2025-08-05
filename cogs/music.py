@@ -96,18 +96,26 @@ class MusicCog(commands.Cog):
                 "Join a voice channel first.", ephemeral=True
             )
             return
+        ephemeral = interaction.channel.type == discord.ChannelType.private
+        await interaction.response.defer(ephemeral=ephemeral, thinking=True)
         try:
             song = await self._create_source(url)
         except yt_dlp.utils.DownloadError:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Could not process the provided URL (possibly DRM-protected or unsupported).",
-                ephemeral=True,
+                ephemeral=ephemeral,
+            )
+            return
+        except discord.ClientException:
+            await interaction.followup.send(
+                "FFmpeg was not found. Please install FFmpeg to use this command.",
+                ephemeral=ephemeral,
             )
             return
         except Exception:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "An unexpected error occurred while processing the URL.",
-                ephemeral=True,
+                ephemeral=ephemeral,
             )
             return
         voice = interaction.guild.voice_client
@@ -115,15 +123,15 @@ class MusicCog(commands.Cog):
             try:
                 voice = await interaction.user.voice.channel.connect()
             except discord.DiscordException:
-                await interaction.response.send_message(
-                    "Failed to connect to the voice channel.", ephemeral=True
+                await interaction.followup.send(
+                    "Failed to connect to the voice channel.", ephemeral=ephemeral
                 )
                 return
         queue = await self._get_queue(interaction.guild_id)
         queue.append(song)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"Enqueued: {song.title}",
-            ephemeral=(interaction.channel.type == discord.ChannelType.private),
+            ephemeral=ephemeral,
         )
         if not voice.is_playing():
             self._play_next(interaction.guild_id)
