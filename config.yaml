@@ -33,7 +33,7 @@ permissions:
     blocked_ids: []
 
 music:
-  dj_role_id: 1402073016476893284
+  dj_role_id: 
   cookies_browser: firefox
 # LLM settings:
 
