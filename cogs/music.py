@@ -6,6 +6,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import yt_dlp
+import logging
 
 
 YTDL_OPTS = {
@@ -62,6 +63,25 @@ class MusicCog(commands.Cog):
             title=data.get("title") or url,
         )
 
+    async def _search_title(self, query: str) -> Optional[str]:
+        google_key = self.bot.config.get("google_api_key")
+        google_cx = self.bot.config.get("google_cse_id")
+        if not google_key or not google_cx:
+            return None
+        try:
+            resp = await self.bot.httpx_client.get(
+                "https://www.googleapis.com/customsearch/v1",
+                params=dict(q=query, num=1, key=google_key, cx=google_cx),
+            )
+            data = resp.json()
+            items = data.get("items") or []
+            if not items:
+                return None
+            return items[0].get("title")
+        except Exception:
+            logging.exception("Error searching Google for alternative")
+            return None
+
     def _play_next(self, guild_id: int) -> None:
         queue = self.queues.get(guild_id)
         if not queue:
@@ -117,13 +137,33 @@ class MusicCog(commands.Cog):
         await interaction.response.defer(ephemeral=ephemeral, thinking=True)
         try:
             song = await self._create_source(url)
-        except yt_dlp.utils.DownloadError:
-            await self._safe_send(
-                interaction,
-                "Could not process the provided URL (possibly DRM-protected or unsupported).",
-                ephemeral=ephemeral,
-            )
-            return
+        except yt_dlp.utils.DownloadError as exc:
+            if "DRM" in str(exc).upper():
+                alt_title = await self._search_title(url)
+                if alt_title:
+                    try:
+                        song = await self._create_source(alt_title)
+                    except Exception:
+                        await self._safe_send(
+                            interaction,
+                            "Could not find a non-DRM version.",
+                            ephemeral=ephemeral,
+                        )
+                        return
+                else:
+                    await self._safe_send(
+                        interaction,
+                        "Could not find a non-DRM version.",
+                        ephemeral=ephemeral,
+                    )
+                    return
+            else:
+                await self._safe_send(
+                    interaction,
+                    "Could not process the provided URL (possibly DRM-protected or unsupported).",
+                    ephemeral=ephemeral,
+                )
+                return
         except discord.ClientException:
             await self._safe_send(
                 interaction,
