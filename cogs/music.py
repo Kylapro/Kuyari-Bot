@@ -43,12 +43,18 @@ class MusicCog(commands.Cog):
 
     # ---- Helpers ----
     def _has_dj_role(self, interaction: discord.Interaction) -> bool:
-        role_id = self.music_cfg.get("dj_role_id")
-        if not role_id:
+        role_ids = self.music_cfg.get("dj_role_id")
+        if not role_ids:
             return True
-        return any(
-            r.id == role_id for r in getattr(interaction.user, "roles", [])
-        )
+        # Allow a single role id or a list of ids
+        if isinstance(role_ids, int):
+            role_ids = {role_ids}
+        else:
+            try:
+                role_ids = {int(r) for r in role_ids}
+            except TypeError:
+                role_ids = {int(role_ids)}
+        return any(r.id in role_ids for r in getattr(interaction.user, "roles", []))
 
     async def _create_sources(self, url: str) -> list[Song]:
         loop = asyncio.get_running_loop()
