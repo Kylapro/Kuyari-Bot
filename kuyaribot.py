@@ -341,20 +341,62 @@ async def on_message(new_msg: discord.Message) -> None:
             if curr_node.text == None:
                 cleaned_content = curr_msg.content.removeprefix(discord_bot.user.mention).lstrip()
 
-                good_attachments = [att for att in curr_msg.attachments if att.content_type and any(att.content_type.startswith(x) for x in ("text", "image"))]
+                good_attachments = [
+                    att
+                    for att in curr_msg.attachments
+                    if att.content_type and any(att.content_type.startswith(x) for x in ("text", "image"))
+                ]
 
-                attachment_responses = await asyncio.gather(*[httpx_client.get(att.url) for att in good_attachments])
+                attachment_responses = await asyncio.gather(
+                    *[httpx_client.get(att.url) for att in good_attachments]
+                )
+
+                embed_urls = []
+                for embed in curr_msg.embeds:
+                    urls = [
+                        getattr(embed, "url", None),
+                        getattr(getattr(embed, "image", None), "url", None),
+                        getattr(getattr(embed, "thumbnail", None), "url", None),
+                    ]
+                    embed_urls.extend([u for u in urls if u and u.startswith("http")])
+
+                embed_responses = await asyncio.gather(
+                    *[httpx_client.get(url) for url in embed_urls]
+                )
 
                 curr_node.text = "\n".join(
                     ([cleaned_content] if cleaned_content else [])
-                    + ["\n".join(filter(None, (embed.title, embed.description, embed.footer.text))) for embed in curr_msg.embeds]
-                    + [resp.text for att, resp in zip(good_attachments, attachment_responses) if att.content_type.startswith("text")]
+                    + [
+                        "\n".join(
+                            filter(None, (embed.title, embed.description, embed.footer.text))
+                        )
+                        for embed in curr_msg.embeds
+                    ]
+                    + [
+                        resp.text
+                        for att, resp in zip(good_attachments, attachment_responses)
+                        if att.content_type.startswith("text")
+                    ]
                 )
 
                 curr_node.images = [
-                    dict(type="image_url", image_url=dict(url=f"data:{att.content_type};base64,{b64encode(resp.content).decode('utf-8')}"))
+                    dict(
+                        type="image_url",
+                        image_url=dict(
+                            url=f"data:{att.content_type};base64,{b64encode(resp.content).decode('utf-8')}"
+                        ),
+                    )
                     for att, resp in zip(good_attachments, attachment_responses)
                     if att.content_type.startswith("image")
+                ] + [
+                    dict(
+                        type="image_url",
+                        image_url=dict(
+                            url=f"data:{resp.headers.get('content-type', 'image/gif')};base64,{b64encode(resp.content).decode('utf-8')}"
+                        ),
+                    )
+                    for resp in embed_responses
+                    if resp.headers.get("content-type", "").startswith("image")
                 ]
 
                 curr_node.role = "assistant" if curr_msg.author == discord_bot.user else "user"
