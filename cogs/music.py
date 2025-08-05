@@ -14,6 +14,7 @@ YTDL_OPTS = {
     "quiet": True,
     "no_warnings": True,
     "default_search": "auto",
+    "noplaylist": True,
 }
 FFMPEG_OPTS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
@@ -34,7 +35,7 @@ class MusicCog(commands.Cog):
         self.bot = bot
         self.queues: dict[int, list[Song]] = {}
 
-        self.music_cfg = bot.config.get("music") or {}
+        self.music_cfg = bot.config.get("music", {})
         opts = YTDL_OPTS.copy()
         browser = self.music_cfg.get("cookies_browser")
         if browser:
@@ -43,41 +44,24 @@ class MusicCog(commands.Cog):
 
     # ---- Helpers ----
     def _has_dj_role(self, interaction: discord.Interaction) -> bool:
-        role_ids = self.music_cfg.get("dj_role_id")
-        if not role_ids:
-            return True
-        # Allow a single role id or a list of ids
-        if isinstance(role_ids, int):
-            role_ids = {role_ids}
-        else:
-            try:
-                role_ids = {int(r) for r in role_ids}
-            except TypeError:
-                role_ids = {int(role_ids)}
-        return any(r.id in role_ids for r in getattr(interaction.user, "roles", []))
+        role_id: Optional[int] = self.music_cfg.get("dj_role_id")
+        return (
+            role_id is None
+            or role_id == 0
+            or any(r.id == role_id for r in interaction.user.roles)
+        )
 
-    async def _create_sources(self, url: str) -> list[Song]:
+    async def _create_source(self, url: str) -> Song:
         loop = asyncio.get_running_loop()
         data = await loop.run_in_executor(
             None, lambda: self.ytdl.extract_info(url, download=False)
         )
-        entries = data.get("entries")
-        if entries:
-            songs = [
-                Song(
-                    source=discord.FFmpegPCMAudio(entry["url"], **FFMPEG_OPTS),
-                    title=entry.get("title") or url,
-                )
-                for entry in entries
-                if entry
-            ]
-            return songs
-        return [
-            Song(
-                source=discord.FFmpegPCMAudio(data["url"], **FFMPEG_OPTS),
-                title=data.get("title") or url,
-            )
-        ]
+        if "entries" in data:
+            data = data["entries"][0]
+        return Song(
+            source=discord.FFmpegPCMAudio(data["url"], **FFMPEG_OPTS),
+            title=data.get("title") or url,
+        )
 
     async def _fetch_page_title(self, url: str) -> Optional[str]:
         """Return the page title for a given URL."""
@@ -123,7 +107,7 @@ class MusicCog(commands.Cog):
             pass
 
     # ---- Commands ----
-    @app_commands.command(name="play", description="Queue a song or playlist by URL")
+    @app_commands.command(name="play", description="Queue a song by URL")
     async def play_command(self, interaction: discord.Interaction, url: str) -> None:
         if not self._has_dj_role(interaction):
             await self._safe_send(
@@ -142,14 +126,14 @@ class MusicCog(commands.Cog):
         ephemeral = interaction.channel.type == discord.ChannelType.private
         await interaction.response.defer(ephemeral=ephemeral, thinking=True)
         try:
-            songs = await self._create_sources(url)
+            song = await self._create_source(url)
         except yt_dlp.utils.DownloadError as exc:
-            songs: list[Song] = []
+            song = None
             if "drm" in str(exc).lower():
                 title = await self._fetch_page_title(url)
                 if title:
                     try:
-                        songs = await self._create_sources(title)
+                        song = await self._create_source(title)
                     except yt_dlp.utils.DownloadError:
                         pass
                     except discord.ClientException:
@@ -166,7 +150,7 @@ class MusicCog(commands.Cog):
                             ephemeral=ephemeral,
                         )
                         return
-            if not songs:
+            if song is None:
                 await self._safe_send(
                     interaction,
                     "Could not process the provided URL (possibly DRM-protected or unsupported).",
@@ -199,12 +183,12 @@ class MusicCog(commands.Cog):
                 )
                 return
         queue = await self._get_queue(interaction.guild_id)
-        queue.extend(songs)
-        if len(songs) == 1:
-            msg = f"Enqueued: {songs[0].title}"
-        else:
-            msg = f"Enqueued {len(songs)} songs"
-        await self._safe_send(interaction, msg, ephemeral=ephemeral)
+        queue.append(song)
+        await self._safe_send(
+            interaction,
+            f"Enqueued: {song.title}",
+            ephemeral=ephemeral,
+        )
         if not voice.is_playing():
             self._play_next(interaction.guild_id)
 
