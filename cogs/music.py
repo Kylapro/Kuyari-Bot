@@ -34,7 +34,7 @@ class MusicCog(commands.Cog):
         self.bot = bot
         self.queues: dict[int, list[Song]] = {}
 
-        self.music_cfg = bot.config.get("music", {})
+        self.music_cfg = bot.config.get("music") or {}
         opts = YTDL_OPTS.copy()
         browser = self.music_cfg.get("cookies_browser")
         if browser:
@@ -43,11 +43,11 @@ class MusicCog(commands.Cog):
 
     # ---- Helpers ----
     def _has_dj_role(self, interaction: discord.Interaction) -> bool:
-        role_id: Optional[int] = self.music_cfg.get("dj_role_id")
-        return (
-            role_id is None
-            or role_id == 0
-            or any(r.id == role_id for r in interaction.user.roles)
+        role_id = self.music_cfg.get("dj_role_id")
+        if not role_id:
+            return True
+        return any(
+            r.id == role_id for r in getattr(interaction.user, "roles", [])
         )
 
     async def _create_sources(self, url: str) -> list[Song]:
