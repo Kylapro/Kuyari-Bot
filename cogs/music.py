@@ -266,12 +266,14 @@ class MusicCog(commands.Cog):
                 ephemeral=True,
             )
             return
+        ephemeral = interaction.channel.type == discord.ChannelType.private
+        await interaction.response.defer(ephemeral=ephemeral, thinking=True)
         vc = interaction.guild.voice_client
         if vc:
             queue = await self._get_queue(interaction.guild_id)
             queue.clear()
             await vc.disconnect()
-            await self._safe_send(interaction, "Disconnected")
+            await self._safe_send(interaction, "Disconnected", ephemeral=ephemeral)
         else:
             await self._safe_send(
                 interaction,
