@@ -244,19 +244,20 @@ async def analyze_video_labels_bytes(data: bytes) -> list[str]:
             }
         )
         result = operation.result(timeout=180)
+
+        def _seconds(duration: Any) -> float:
+            total = getattr(duration, "total_seconds", None)
+            if callable(total):
+                return total()
+            return duration.seconds + duration.nanos / 1e9
+
         labels: list[str] = []
         for segment_label in result.annotation_results[0].segment_label_annotations:
             if segment_label.segments:
                 segment = segment_label.segments[0]
                 confidence = segment.confidence
-                start = (
-                    segment.segment.start_time_offset.seconds
-                    + segment.segment.start_time_offset.nanos / 1e9
-                )
-                end = (
-                    segment.segment.end_time_offset.seconds
-                    + segment.segment.end_time_offset.nanos / 1e9
-                )
+                start = _seconds(segment.segment.start_time_offset)
+                end = _seconds(segment.segment.end_time_offset)
                 categories = ", ".join(
                     c.description for c in segment_label.category_entities
                 )
