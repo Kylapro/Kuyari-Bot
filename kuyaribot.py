@@ -226,7 +226,7 @@ async def maybe_handle_image_request(msg: discord.Message) -> bool:
 @dataclass
 class MsgNode:
     text: Optional[str] = None
-    media: list[dict[str, Any]] = field(default_factory=list)
+    images: list[dict[str, Any]] = field(default_factory=list)
 
     role: Literal["user", "assistant"] = "assistant"
     user_id: Optional[int] = None
@@ -322,13 +322,11 @@ async def on_message(new_msg: discord.Message) -> None:
     if reasoning_config:
         extra_body = {**(extra_body or {}), "reasoning": reasoning_config}
 
-    accept_media = any(x in provider_slash_model.lower() for x in VISION_MODEL_TAGS)
+    accept_images = any(x in provider_slash_model.lower() for x in VISION_MODEL_TAGS)
     accept_usernames = any(x in provider_slash_model.lower() for x in PROVIDERS_SUPPORTING_USERNAMES)
 
     max_text = config.get("max_text", 100000)
-    max_media = (
-        config.get("max_media", config.get("max_images", 5)) if accept_media else 0
-    )
+    max_images = config.get("max_images", 5) if accept_images else 0
     max_messages = config.get("max_messages", 25)
 
     # Build message chain and set user warnings
@@ -346,8 +344,7 @@ async def on_message(new_msg: discord.Message) -> None:
                 good_attachments = [
                     att
                     for att in curr_msg.attachments
-                    if att.content_type
-                    and any(att.content_type.startswith(x) for x in ("text", "image", "video"))
+                    if att.content_type and any(att.content_type.startswith(x) for x in ("text", "image"))
                 ]
 
                 attachment_responses = await asyncio.gather(
@@ -382,7 +379,7 @@ async def on_message(new_msg: discord.Message) -> None:
                     ]
                 )
 
-                curr_node.media = [
+                curr_node.images = [
                     dict(
                         type="image_url",
                         image_url=dict(
@@ -393,15 +390,6 @@ async def on_message(new_msg: discord.Message) -> None:
                     if att.content_type.startswith("image")
                 ] + [
                     dict(
-                        type="video_url",
-                        video_url=dict(
-                            url=f"data:{att.content_type};base64,{b64encode(resp.content).decode('utf-8')}"
-                        ),
-                    )
-                    for att, resp in zip(good_attachments, attachment_responses)
-                    if att.content_type.startswith("video")
-                ] + [
-                    dict(
                         type="image_url",
                         image_url=dict(
                             url=f"data:{resp.headers.get('content-type', 'image/gif')};base64,{b64encode(resp.content).decode('utf-8')}"
@@ -409,15 +397,6 @@ async def on_message(new_msg: discord.Message) -> None:
                     )
                     for resp in embed_responses
                     if resp.headers.get("content-type", "").startswith("image")
-                ] + [
-                    dict(
-                        type="video_url",
-                        video_url=dict(
-                            url=f"data:{resp.headers.get('content-type', 'video/mp4')};base64,{b64encode(resp.content).decode('utf-8')}"
-                        ),
-                    )
-                    for resp in embed_responses
-                    if resp.headers.get("content-type", "").startswith("video")
                 ]
 
                 curr_node.role = "assistant" if curr_msg.author == discord_bot.user else "user"
@@ -449,8 +428,8 @@ async def on_message(new_msg: discord.Message) -> None:
                     logging.exception("Error fetching next message in the chain")
                     curr_node.fetch_parent_failed = True
 
-            if curr_node.media[:max_media]:
-                content = ([dict(type="text", text=curr_node.text[:max_text])] if curr_node.text[:max_text] else []) + curr_node.media[:max_media]
+            if curr_node.images[:max_images]:
+                content = ([dict(type="text", text=curr_node.text[:max_text])] if curr_node.text[:max_text] else []) + curr_node.images[:max_images]
             else:
                 content = curr_node.text[:max_text]
 
@@ -463,12 +442,8 @@ async def on_message(new_msg: discord.Message) -> None:
 
             if len(curr_node.text) > max_text:
                 user_warnings.add(f"⚠️ Max {max_text:,} characters per message")
-            if len(curr_node.media) > max_media:
-                user_warnings.add(
-                    f"⚠️ Max {max_media} attachment{'' if max_media == 1 else 's'} per message"
-                    if max_media > 0
-                    else "⚠️ Can't see images or videos"
-                )
+            if len(curr_node.images) > max_images:
+                user_warnings.add(f"⚠️ Max {max_images} image{'' if max_images == 1 else 's'} per message" if max_images > 0 else "⚠️ Can't see images")
             if curr_node.has_bad_attachments:
                 user_warnings.add("⚠️ Unsupported attachments")
             if curr_node.fetch_parent_failed or (curr_node.parent_msg != None and len(messages) == max_messages):
