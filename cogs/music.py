@@ -83,17 +83,30 @@ class MusicCog(commands.Cog):
     async def _get_queue(self, guild_id: int) -> list[Song]:
         return self.queues.setdefault(guild_id, [])
 
+    async def _safe_send(self, interaction: discord.Interaction, *args, **kwargs) -> None:
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(*args, **kwargs)
+            else:
+                await interaction.response.send_message(*args, **kwargs)
+        except discord.HTTPException:
+            pass
+
     # ---- Commands ----
     @app_commands.command(name="play", description="Queue a song by URL")
     async def play_command(self, interaction: discord.Interaction, url: str) -> None:
         if not self._has_dj_role(interaction):
-            await interaction.response.send_message(
-                "You need the DJ role to use this command.", ephemeral=True
+            await self._safe_send(
+                interaction,
+                "You need the DJ role to use this command.",
+                ephemeral=True,
             )
             return
         if not interaction.user.voice or not interaction.user.voice.channel:
-            await interaction.response.send_message(
-                "Join a voice channel first.", ephemeral=True
+            await self._safe_send(
+                interaction,
+                "Join a voice channel first.",
+                ephemeral=True,
             )
             return
         ephemeral = interaction.channel.type == discord.ChannelType.private
@@ -101,19 +114,22 @@ class MusicCog(commands.Cog):
         try:
             song = await self._create_source(url)
         except yt_dlp.utils.DownloadError:
-            await interaction.followup.send(
+            await self._safe_send(
+                interaction,
                 "Could not process the provided URL (possibly DRM-protected or unsupported).",
                 ephemeral=ephemeral,
             )
             return
         except discord.ClientException:
-            await interaction.followup.send(
+            await self._safe_send(
+                interaction,
                 "FFmpeg was not found. Please install FFmpeg to use this command.",
                 ephemeral=ephemeral,
             )
             return
         except Exception:
-            await interaction.followup.send(
+            await self._safe_send(
+                interaction,
                 "An unexpected error occurred while processing the URL.",
                 ephemeral=ephemeral,
             )
@@ -123,13 +139,16 @@ class MusicCog(commands.Cog):
             try:
                 voice = await interaction.user.voice.channel.connect()
             except discord.DiscordException:
-                await interaction.followup.send(
-                    "Failed to connect to the voice channel.", ephemeral=ephemeral
+                await self._safe_send(
+                    interaction,
+                    "Failed to connect to the voice channel.",
+                    ephemeral=ephemeral,
                 )
                 return
         queue = await self._get_queue(interaction.guild_id)
         queue.append(song)
-        await interaction.followup.send(
+        await self._safe_send(
+            interaction,
             f"Enqueued: {song.title}",
             ephemeral=ephemeral,
         )
@@ -139,33 +158,41 @@ class MusicCog(commands.Cog):
     @app_commands.command(name="pause", description="Pause the current song")
     async def pause_command(self, interaction: discord.Interaction) -> None:
         if not self._has_dj_role(interaction):
-            await interaction.response.send_message(
-                "You need the DJ role to use this command.", ephemeral=True
+            await self._safe_send(
+                interaction,
+                "You need the DJ role to use this command.",
+                ephemeral=True,
             )
             return
         vc = interaction.guild.voice_client
         if vc and vc.is_playing():
             vc.pause()
-            await interaction.response.send_message("Paused")
+            await self._safe_send(interaction, "Paused")
         else:
-            await interaction.response.send_message(
-                "Nothing is playing.", ephemeral=True
+            await self._safe_send(
+                interaction,
+                "Nothing is playing.",
+                ephemeral=True,
             )
 
     @app_commands.command(name="resume", description="Resume the current song")
     async def resume_command(self, interaction: discord.Interaction) -> None:
         if not self._has_dj_role(interaction):
-            await interaction.response.send_message(
-                "You need the DJ role to use this command.", ephemeral=True
+            await self._safe_send(
+                interaction,
+                "You need the DJ role to use this command.",
+                ephemeral=True,
             )
             return
         vc = interaction.guild.voice_client
         if vc and vc.is_paused():
             vc.resume()
-            await interaction.response.send_message("Resumed")
+            await self._safe_send(interaction, "Resumed")
         else:
-            await interaction.response.send_message(
-                "Nothing is paused.", ephemeral=True
+            await self._safe_send(
+                interaction,
+                "Nothing is paused.",
+                ephemeral=True,
             )
 
     @app_commands.command(name="queue", description="View the music queue")
@@ -178,15 +205,19 @@ class MusicCog(commands.Cog):
             for idx, song in enumerate(queue[1:], start=1):
                 lines.append(f"{idx}. {song.title}")
             desc = "\n".join(lines)
-        await interaction.response.send_message(
-            desc, ephemeral=(interaction.channel.type == discord.ChannelType.private)
+        await self._safe_send(
+            interaction,
+            desc,
+            ephemeral=(interaction.channel.type == discord.ChannelType.private),
         )
 
     @app_commands.command(name="clear", description="Clear the music queue")
     async def clear_command(self, interaction: discord.Interaction) -> None:
         if not self._has_dj_role(interaction):
-            await interaction.response.send_message(
-                "You need the DJ role to use this command.", ephemeral=True
+            await self._safe_send(
+                interaction,
+                "You need the DJ role to use this command.",
+                ephemeral=True,
             )
             return
         queue = await self._get_queue(interaction.guild_id)
@@ -194,35 +225,87 @@ class MusicCog(commands.Cog):
         vc = interaction.guild.voice_client
         if vc and vc.is_playing():
             vc.stop()
-        await interaction.response.send_message("Queue cleared")
+        await self._safe_send(interaction, "Queue cleared")
+
+    @app_commands.command(name="stop", description="Stop playback and clear the queue")
+    async def stop_command(self, interaction: discord.Interaction) -> None:
+        if not self._has_dj_role(interaction):
+            await self._safe_send(
+                interaction,
+                "You need the DJ role to use this command.",
+                ephemeral=True,
+            )
+            return
+        queue = await self._get_queue(interaction.guild_id)
+        queue.clear()
+        vc = interaction.guild.voice_client
+        if vc and (vc.is_playing() or vc.is_paused()):
+            vc.stop()
+            await self._safe_send(interaction, "Stopped")
+        else:
+            await self._safe_send(
+                interaction,
+                "Nothing is playing.",
+                ephemeral=True,
+            )
+
+    @app_commands.command(name="leave", description="Disconnect from the voice channel")
+    async def leave_command(self, interaction: discord.Interaction) -> None:
+        if not self._has_dj_role(interaction):
+            await self._safe_send(
+                interaction,
+                "You need the DJ role to use this command.",
+                ephemeral=True,
+            )
+            return
+        vc = interaction.guild.voice_client
+        if vc:
+            queue = await self._get_queue(interaction.guild_id)
+            queue.clear()
+            await vc.disconnect()
+            await self._safe_send(interaction, "Disconnected")
+        else:
+            await self._safe_send(
+                interaction,
+                "I'm not in a voice channel.",
+                ephemeral=True,
+            )
 
     @app_commands.command(name="skip", description="Skip the current song")
     async def skip_command(self, interaction: discord.Interaction) -> None:
         if not self._has_dj_role(interaction):
-            await interaction.response.send_message(
-                "You need the DJ role to use this command.", ephemeral=True
+            await self._safe_send(
+                interaction,
+                "You need the DJ role to use this command.",
+                ephemeral=True,
             )
             return
         vc = interaction.guild.voice_client
         if vc and vc.is_playing():
             vc.stop()
-            await interaction.response.send_message("Skipped")
+            await self._safe_send(interaction, "Skipped")
         else:
-            await interaction.response.send_message(
-                "Nothing is playing.", ephemeral=True
+            await self._safe_send(
+                interaction,
+                "Nothing is playing.",
+                ephemeral=True,
             )
 
     @app_commands.command(name="skipto", description="Skip to a song in the queue")
     async def skipto_command(self, interaction: discord.Interaction, position: int) -> None:
         if not self._has_dj_role(interaction):
-            await interaction.response.send_message(
-                "You need the DJ role to use this command.", ephemeral=True
+            await self._safe_send(
+                interaction,
+                "You need the DJ role to use this command.",
+                ephemeral=True,
             )
             return
         queue = await self._get_queue(interaction.guild_id)
         if position < 1 or position > len(queue):
-            await interaction.response.send_message(
-                "Invalid position.", ephemeral=True
+            await self._safe_send(
+                interaction,
+                "Invalid position.",
+                ephemeral=True,
             )
             return
         if position > 1:
@@ -230,4 +313,4 @@ class MusicCog(commands.Cog):
         vc = interaction.guild.voice_client
         if vc and vc.is_playing():
             vc.stop()
-        await interaction.response.send_message(f"Skipped to position {position}")
+        await self._safe_send(interaction, f"Skipped to position {position}")
