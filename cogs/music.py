@@ -224,12 +224,14 @@ class MusicCog(commands.Cog):
                 ephemeral=True,
             )
             return
+        ephemeral = interaction.channel.type == discord.ChannelType.private
+        await interaction.response.defer(ephemeral=ephemeral, thinking=True)
         queue = await self._get_queue(interaction.guild_id)
         queue.clear()
         vc = interaction.guild.voice_client
         if vc and vc.is_playing():
             vc.stop()
-        await self._safe_send(interaction, "Queue cleared")
+        await self._safe_send(interaction, "Queue cleared", ephemeral=ephemeral)
 
     @app_commands.command(name="stop", description="Stop playback and clear the queue")
     async def stop_command(self, interaction: discord.Interaction) -> None:
@@ -240,17 +242,19 @@ class MusicCog(commands.Cog):
                 ephemeral=True,
             )
             return
+        ephemeral = interaction.channel.type == discord.ChannelType.private
+        await interaction.response.defer(ephemeral=ephemeral, thinking=True)
         queue = await self._get_queue(interaction.guild_id)
         queue.clear()
         vc = interaction.guild.voice_client
         if vc and (vc.is_playing() or vc.is_paused()):
             vc.stop()
-            await self._safe_send(interaction, "Stopped")
+            await self._safe_send(interaction, "Stopped", ephemeral=ephemeral)
         else:
             await self._safe_send(
                 interaction,
                 "Nothing is playing.",
-                ephemeral=True,
+                ephemeral=ephemeral,
             )
 
     @app_commands.command(name="leave", description="Disconnect from the voice channel")
