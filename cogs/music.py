@@ -19,7 +19,6 @@ FFMPEG_OPTS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
     "options": "-vn",
 }
-ytdl = yt_dlp.YoutubeDL(YTDL_OPTS)
 
 
 @dataclass
@@ -35,11 +34,16 @@ class MusicCog(commands.Cog):
         self.bot = bot
         self.queues: dict[int, list[Song]] = {}
 
+        self.music_cfg = bot.config.get("music", {})
+        opts = YTDL_OPTS.copy()
+        browser = self.music_cfg.get("cookies_browser")
+        if browser:
+            opts["cookiesfrombrowser"] = (browser,)
+        self.ytdl = yt_dlp.YoutubeDL(opts)
+
     # ---- Helpers ----
     def _has_dj_role(self, interaction: discord.Interaction) -> bool:
-        role_id: Optional[int] = (
-            self.bot.config.get("music", {}).get("dj_role_id")
-        )
+        role_id: Optional[int] = self.music_cfg.get("dj_role_id")
         return (
             role_id is None
             or role_id == 0
@@ -49,7 +53,7 @@ class MusicCog(commands.Cog):
     async def _create_source(self, url: str) -> Song:
         loop = asyncio.get_running_loop()
         data = await loop.run_in_executor(
-            None, lambda: ytdl.extract_info(url, download=False)
+            None, lambda: self.ytdl.extract_info(url, download=False)
         )
         if "entries" in data:
             data = data["entries"][0]
