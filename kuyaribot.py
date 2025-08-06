@@ -301,6 +301,7 @@ async def maybe_handle_video_request(msg: discord.Message) -> tuple[bool, Option
         return False, None
 
     video_url: Optional[str] = None
+    video_bytes: Optional[bytes] = None
     for pattern in ANALYZE_VIDEO_PATTERNS:
         if match := pattern.search(msg.content):
             video_url = match.group("url")
@@ -309,22 +310,23 @@ async def maybe_handle_video_request(msg: discord.Message) -> tuple[bool, Option
     if not video_url:
         for att in msg.attachments:
             if att.content_type and att.content_type.startswith("video"):
-                video_url = att.url
+                video_bytes = await att.read()
                 break
 
-    if not video_url:
+    if video_url:
+        try:
+            resp = await discord_bot.httpx_client.get(video_url)
+            resp.raise_for_status()
+            video_bytes = resp.content
+        except Exception:
+            logging.exception("Error fetching video")
+            await msg.reply("Failed to download video.")
+            return True, None
+    elif video_bytes is None:
         return False, None
 
     try:
-        resp = await discord_bot.httpx_client.get(video_url)
-        resp.raise_for_status()
-    except Exception:
-        logging.exception("Error fetching video")
-        await msg.reply("Failed to download video.")
-        return True, None
-
-    try:
-        labels = await analyze_video_labels_bytes(resp.content)
+        labels = await analyze_video_labels_bytes(video_bytes)
     except Exception:
         logging.exception("Error analyzing video")
         await msg.reply("Failed to analyze video.")
@@ -506,8 +508,8 @@ async def on_message(new_msg: discord.Message) -> None:
                     if ctype and ctype.startswith(("text", "image")):
                         good_attachments.append((att, ctype))
 
-                attachment_responses = await asyncio.gather(
-                    *[httpx_client.get(att.url) for att, _ in good_attachments]
+                attachment_bytes = await asyncio.gather(
+                    *[att.read() for att, _ in good_attachments]
                 )
 
                 embed_urls = []
@@ -532,8 +534,8 @@ async def on_message(new_msg: discord.Message) -> None:
                         for embed in curr_msg.embeds
                     ]
                     + [
-                        resp.text
-                        for (att, ctype), resp in zip(good_attachments, attachment_responses)
+                        data.decode("utf-8", errors="ignore")
+                        for (att, ctype), data in zip(good_attachments, attachment_bytes)
                         if ctype.startswith("text")
                     ]
                 )
@@ -542,10 +544,10 @@ async def on_message(new_msg: discord.Message) -> None:
                     dict(
                         type="input_image",
                         image_url=dict(
-                            url=f"data:{ctype};base64,{b64encode(resp.content).decode('utf-8')}"
+                            url=f"data:{ctype};base64,{b64encode(data).decode('utf-8')}"
                         ),
                     )
-                    for (att, ctype), resp in zip(good_attachments, attachment_responses)
+                    for (att, ctype), data in zip(good_attachments, attachment_bytes)
                     if ctype.startswith("image")
                 ] + [
                     dict(
