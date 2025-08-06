@@ -7,15 +7,12 @@ import re
 from typing import Any, Literal, Optional
 
 from io import BytesIO
-import os
 import random
-import mimetypes
 import discord
 from discord.ext import commands
 import httpx
 from openai import AsyncOpenAI
 import yaml
-from google.cloud import videointelligence
 
 from cogs.config import ConfigCog
 from cogs.media import MediaCog
@@ -44,8 +41,6 @@ def get_config(filename: str = "config.yaml") -> dict[str, Any]:
 
 
 config = get_config()
-if (cred_file := config.get("google_credentials_file")) and "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = cred_file
 
 msg_nodes = {}
 last_task_time = 0
@@ -191,11 +186,6 @@ GOOGLE_IMAGE_PATTERNS = [
 ]
 
 
-ANALYZE_VIDEO_PATTERNS = [
-    re.compile(r"(?:analyze|describe|label).*?(?:video|mp4|movie|clip)[: ]+(?P<url>https?://\S+)", re.I),
-]
-
-
 async def maybe_handle_image_request(msg: discord.Message) -> bool:
     """Check if message requests an image and respond with one if so."""
     if msg.content.startswith("/"):
@@ -233,106 +223,6 @@ async def maybe_handle_image_request(msg: discord.Message) -> bool:
     return False
 
 
-async def analyze_video_labels_bytes(data: bytes) -> list[str]:
-    """Analyze video content and return detailed label descriptions."""
-
-    def _annotate() -> list[str]:
-        video_client = videointelligence.VideoIntelligenceServiceClient()
-        operation = video_client.annotate_video(
-            request={
-                "features": [videointelligence.Feature.LABEL_DETECTION],
-                "input_content": data,
-            }
-        )
-        result = operation.result(timeout=180)
-
-        def _seconds(duration: Any) -> float:
-            total = getattr(duration, "total_seconds", None)
-            if callable(total):
-                return total()
-            return duration.seconds + duration.nanos / 1e9
-
-        labels: list[str] = []
-        annotations = result.annotation_results[0]
-
-        def _format(prefix: str, entity: Any, segment: Any, categories: str) -> str:
-            confidence = segment.confidence
-            start = _seconds(segment.segment.start_time_offset)
-            end = _seconds(segment.segment.end_time_offset)
-            entity_id = getattr(entity, "entity_id", None)
-            entity_part = f" ({entity_id})" if entity_id else ""
-            category_part = f" | categories: {categories}" if categories else ""
-            return (
-                f"{prefix}: {entity.description}{entity_part} "
-                f"({confidence:.2f}) {start:.2f}-{end:.2f}s{category_part}"
-            )
-
-        for segment_label in annotations.segment_label_annotations:
-            categories = ", ".join(c.description for c in segment_label.category_entities)
-            if segment_label.segments:
-                for segment in segment_label.segments:
-                    labels.append(
-                        _format("segment", segment_label.entity, segment, categories)
-                    )
-            else:
-                entity_id = segment_label.entity.entity_id
-                entity_part = f" ({entity_id})" if entity_id else ""
-                category_part = f" | categories: {categories}" if categories else ""
-                labels.append(
-                    f"segment: {segment_label.entity.description}{entity_part} (0.00) 0.00-0.00s{category_part}"
-                )
-
-        for shot_label in annotations.shot_label_annotations:
-            categories = ", ".join(c.description for c in shot_label.category_entities)
-            for segment in shot_label.segments:
-                labels.append(
-                    _format("shot", shot_label.entity, segment, categories)
-                )
-
-        logging.info("Video intelligence labels: %s", labels)
-        return labels
-
-    return await asyncio.to_thread(_annotate)
-
-
-async def maybe_handle_video_request(msg: discord.Message) -> tuple[bool, Optional[list[str]]]:
-    """Return video label metadata for LLM consumption, handling errors."""
-    if msg.content.startswith("/"):
-        return False, None
-
-    video_url: Optional[str] = None
-    for pattern in ANALYZE_VIDEO_PATTERNS:
-        if match := pattern.search(msg.content):
-            video_url = match.group("url")
-            break
-
-    if not video_url:
-        for att in msg.attachments:
-            if att.content_type and att.content_type.startswith("video"):
-                video_url = att.url
-                break
-
-    if not video_url:
-        return False, None
-
-    try:
-        resp = await discord_bot.httpx_client.get(video_url)
-        resp.raise_for_status()
-    except Exception:
-        logging.exception("Error fetching video")
-        await msg.reply("Failed to download video.")
-        return True, None
-
-    try:
-        labels = await analyze_video_labels_bytes(resp.content)
-    except Exception:
-        logging.exception("Error analyzing video")
-        await msg.reply("Failed to analyze video.")
-        return True, None
-
-    return False, labels
-
-
 @dataclass
 class MsgNode:
     text: Optional[str] = None
@@ -364,22 +254,27 @@ async def on_ready() -> None:
 @discord_bot.event
 async def on_message(new_msg: discord.Message) -> None:
     global last_task_time
+
     is_dm = new_msg.channel.type == discord.ChannelType.private
 
     if new_msg.author.bot:
         return
 
+    should_respond_passively = False
+    if not is_dm and discord_bot.user not in new_msg.mentions:
+        config = await asyncio.to_thread(get_config)
+        discord_bot.config = config
+        allow_passive = config.get("allow_passive_chat", False)
+        chance = config.get("passive_chat_probability", 0.0)
+
+        if allow_passive and random.random() < chance:
+            should_respond_passively = True
+
+        if not should_respond_passively:
+            return
+
     role_ids = set(role.id for role in getattr(new_msg.author, "roles", ()))
-    channel_ids = set(
-        filter(
-            None,
-            (
-                new_msg.channel.id,
-                getattr(new_msg.channel, "parent_id", None),
-                getattr(new_msg.channel, "category_id", None),
-            ),
-        )
-    )
+    channel_ids = set(filter(None, (new_msg.channel.id, getattr(new_msg.channel, "parent_id", None), getattr(new_msg.channel, "category_id", None))))
 
     config = await asyncio.to_thread(get_config)
     discord_bot.config = config
@@ -404,61 +299,9 @@ async def on_message(new_msg: discord.Message) -> None:
 
     if is_bad_user or is_bad_channel:
         return
-    # Cache every incoming user message
-    curr_node = msg_nodes.setdefault(
-        new_msg.id,
-        MsgNode(
-            role="user",
-            user_id=new_msg.author.id,
-            parent_msg=getattr(new_msg.reference, "resolved", None),
-        ),
-    )
-    if curr_node.text is None:
-        curr_node.text = new_msg.content.removeprefix(discord_bot.user.mention).lstrip()
 
-    # Prune cache to avoid unbounded growth
-    if (num_nodes := len(msg_nodes)) > MAX_MESSAGE_NODES:
-        for msg_id in sorted(msg_nodes.keys())[: num_nodes - MAX_MESSAGE_NODES]:
-            async with msg_nodes.setdefault(msg_id, MsgNode()).lock:
-                msg_nodes.pop(msg_id, None)
-
-    should_respond = is_dm or discord_bot.user in new_msg.mentions
-    if not should_respond:
-        allow_passive = config.get("allow_passive_chat", False)
-        chance = config.get("passive_chat_probability", 0.0)
-
-        try:
-            chance = float(chance)
-        except (TypeError, ValueError):
-            chance = 0.0
-
-        if chance > 1:
-            chance /= 100.0
-
-        chance = max(0.0, min(chance, 1.0))
-
-        if allow_passive and random.random() < chance:
-            should_respond = True
-
-    if not should_respond:
+    if await maybe_handle_music_request(new_msg) or await maybe_handle_image_request(new_msg):
         return
-
-    if (
-        await maybe_handle_music_request(new_msg)
-        or await maybe_handle_image_request(new_msg)
-    ):
-        return
-
-    handled, video_labels = await maybe_handle_video_request(new_msg)
-    if handled:
-        return
-    video_metadata_text = None
-    if video_labels is not None:
-        video_metadata_text = (
-            "\n".join(f"- {label}" for label in video_labels)
-            if video_labels
-            else "No labels detected."
-        )
 
     provider_slash_model = discord_bot.curr_model
     provider, model = provider_slash_model.removesuffix(":vision").split("/", 1)
@@ -497,17 +340,15 @@ async def on_message(new_msg: discord.Message) -> None:
         async with curr_node.lock:
             if curr_node.text == None:
                 cleaned_content = curr_msg.content.removeprefix(discord_bot.user.mention).lstrip()
-                if curr_msg is new_msg and video_metadata_text:
-                    cleaned_content += f"\n\nVideo metadata:\n{video_metadata_text}"
 
-                good_attachments = []
-                for att in curr_msg.attachments:
-                    ctype = att.content_type or mimetypes.guess_type(att.filename)[0]
-                    if ctype and ctype.startswith(("text", "image")):
-                        good_attachments.append((att, ctype))
+                good_attachments = [
+                    att
+                    for att in curr_msg.attachments
+                    if att.content_type and any(att.content_type.startswith(x) for x in ("text", "image"))
+                ]
 
                 attachment_responses = await asyncio.gather(
-                    *[httpx_client.get(att.url) for att, _ in good_attachments]
+                    *[httpx_client.get(att.url) for att in good_attachments]
                 )
 
                 embed_urls = []
@@ -533,23 +374,23 @@ async def on_message(new_msg: discord.Message) -> None:
                     ]
                     + [
                         resp.text
-                        for (att, ctype), resp in zip(good_attachments, attachment_responses)
-                        if ctype.startswith("text")
+                        for att, resp in zip(good_attachments, attachment_responses)
+                        if att.content_type.startswith("text")
                     ]
                 )
 
                 curr_node.images = [
                     dict(
-                        type="input_image",
+                        type="image_url",
                         image_url=dict(
-                            url=f"data:{ctype};base64,{b64encode(resp.content).decode('utf-8')}"
+                            url=f"data:{att.content_type};base64,{b64encode(resp.content).decode('utf-8')}"
                         ),
                     )
-                    for (att, ctype), resp in zip(good_attachments, attachment_responses)
-                    if ctype.startswith("image")
+                    for att, resp in zip(good_attachments, attachment_responses)
+                    if att.content_type.startswith("image")
                 ] + [
                     dict(
-                        type="input_image",
+                        type="image_url",
                         image_url=dict(
                             url=f"data:{resp.headers.get('content-type', 'image/gif')};base64,{b64encode(resp.content).decode('utf-8')}"
                         ),
@@ -588,8 +429,7 @@ async def on_message(new_msg: discord.Message) -> None:
                     curr_node.fetch_parent_failed = True
 
             if curr_node.images[:max_images]:
-                text_part = curr_node.text[:max_text]
-                content = ([dict(type="input_text", text=text_part)] if text_part else []) + curr_node.images[:max_images]
+                content = ([dict(type="text", text=curr_node.text[:max_text])] if curr_node.text[:max_text] else []) + curr_node.images[:max_images]
             else:
                 content = curr_node.text[:max_text]
 
@@ -627,11 +467,11 @@ async def on_message(new_msg: discord.Message) -> None:
         if msg.get("role") == "user":
             if isinstance(msg["content"], list):
                 for part in msg["content"]:
-                    if isinstance(part, dict) and part.get("type") in ("text", "input_text"):
+                    if isinstance(part, dict) and part.get("type") == "text":
                         part["text"] += "\n\n" + reasoning_instruction
                         break
                 else:
-                    msg["content"].insert(0, {"type": "input_text", "text": reasoning_instruction})
+                    msg["content"].insert(0, {"type": "text", "text": reasoning_instruction})
             else:
                 msg["content"] += "\n\n" + reasoning_instruction
             break
