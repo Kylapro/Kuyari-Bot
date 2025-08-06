@@ -17,6 +17,7 @@ import yaml
 from cogs.config import ConfigCog
 from cogs.media import MediaCog
 from cogs.music import MusicCog
+from cogs.emojis import EmojiCog
 
 logging.basicConfig(
     level=logging.INFO,
@@ -579,6 +580,7 @@ async def main() -> None:
     await discord_bot.add_cog(ConfigCog(discord_bot))
     await discord_bot.add_cog(MediaCog(discord_bot))
     await discord_bot.add_cog(MusicCog(discord_bot))
+    await discord_bot.add_cog(EmojiCog(discord_bot))
     await discord_bot.start(discord_bot.config["bot_token"])
 
 
