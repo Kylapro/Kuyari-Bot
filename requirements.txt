@@ -1,4 +1,4 @@
-discord.py
+discord.py[voice]>=2.4.0
 httpx
 openai
 pyyaml

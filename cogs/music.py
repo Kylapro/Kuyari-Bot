@@ -135,6 +135,19 @@ class MusicCog(commands.Cog):
         except discord.HTTPException:
             pass
 
+    async def _connect_to_voice(
+        self, channel: discord.VoiceChannel
+    ) -> Optional[discord.VoiceClient]:
+        for delay in (0, 1, 3):
+            try:
+                return await channel.connect(
+                    timeout=15.0, reconnect=True, self_deaf=True
+                )
+            except discord.DiscordException:
+                if delay:
+                    await asyncio.sleep(delay)
+        return None
+
     # ---- Commands ----
     @app_commands.command(name="search", description="Search YouTube for music")
     @app_commands.describe(query="Search terms", page="Results page number")
@@ -236,9 +249,8 @@ class MusicCog(commands.Cog):
             return
         voice = interaction.guild.voice_client
         if not voice:
-            try:
-                voice = await interaction.user.voice.channel.connect()
-            except discord.DiscordException:
+            voice = await self._connect_to_voice(interaction.user.voice.channel)
+            if not voice:
                 await self._safe_send(
                     interaction,
                     "Failed to connect to the voice channel.",
