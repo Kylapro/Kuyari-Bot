@@ -10,7 +10,7 @@ google_credentials_file: application_default_credentials.json
 openrouter_api_key: 
 
 max_text: 100000
-max_images: 5
+max_media: 5
 max_messages: 25
 reasoning:
   effort: medium
