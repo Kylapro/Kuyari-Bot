@@ -15,6 +15,9 @@ max_messages: 25
 reasoning:
   effort: medium
 
+reasoning:
+  effort: high
+
 use_plain_responses: true
 allow_dms: true
 
