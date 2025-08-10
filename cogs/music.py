@@ -236,8 +236,23 @@ class MusicCog(commands.Cog):
             return
         voice = interaction.guild.voice_client
         if not voice:
+            channel = interaction.user.voice.channel
             try:
-                voice = await interaction.user.voice.channel.connect()
+                voice = await channel.connect()
+            except discord.errors.ConnectionClosed:
+                # Discord occasionally closes the voice WebSocket with
+                # code 4006 (session invalid).  Give it one more attempt
+                # before reporting failure back to the user.
+                await asyncio.sleep(1)
+                try:
+                    voice = await channel.connect(reconnect=False)
+                except discord.DiscordException:
+                    await self._safe_send(
+                        interaction,
+                        "Failed to connect to the voice channel.",
+                        ephemeral=ephemeral,
+                    )
+                    return
             except discord.DiscordException:
                 await self._safe_send(
                     interaction,
