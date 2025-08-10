@@ -47,6 +47,7 @@ last_task_time = 0
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.voice_states = True
 activity = discord.CustomActivity(name=(config["status_message"] or "github.com/kylapro/Kuyari-Bot")[:128])
 discord_bot = commands.Bot(intents=intents, activity=activity, command_prefix=None)
 
