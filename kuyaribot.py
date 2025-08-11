@@ -383,7 +383,7 @@ async def on_message(new_msg: discord.Message) -> None:
 
                 curr_node.images = [
                     dict(
-                        type="image_url",
+                        type="input_image",
                         image_url=dict(
                             url=f"data:{att.content_type};base64,{b64encode(resp.content).decode('utf-8')}"
                         ),
@@ -392,7 +392,7 @@ async def on_message(new_msg: discord.Message) -> None:
                     if att.content_type.startswith("image")
                 ] + [
                     dict(
-                        type="image_url",
+                        type="input_image",
                         image_url=dict(
                             url=f"data:{resp.headers.get('content-type', 'image/gif')};base64,{b64encode(resp.content).decode('utf-8')}"
                         ),
@@ -431,7 +431,8 @@ async def on_message(new_msg: discord.Message) -> None:
                     curr_node.fetch_parent_failed = True
 
             if curr_node.images[:max_images]:
-                content = ([dict(type="text", text=curr_node.text[:max_text])] if curr_node.text[:max_text] else []) + curr_node.images[:max_images]
+                text_part = curr_node.text[:max_text]
+                content = ([dict(type="input_text", text=text_part)] if text_part else []) + curr_node.images[:max_images]
             else:
                 content = curr_node.text[:max_text]
 
@@ -469,11 +470,11 @@ async def on_message(new_msg: discord.Message) -> None:
         if msg.get("role") == "user":
             if isinstance(msg["content"], list):
                 for part in msg["content"]:
-                    if isinstance(part, dict) and part.get("type") == "text":
+                    if isinstance(part, dict) and part.get("type") in ("text", "input_text"):
                         part["text"] += "\n\n" + reasoning_instruction
                         break
                 else:
-                    msg["content"].insert(0, {"type": "text", "text": reasoning_instruction})
+                    msg["content"].insert(0, {"type": "input_text", "text": reasoning_instruction})
             else:
                 msg["content"] += "\n\n" + reasoning_instruction
             break
