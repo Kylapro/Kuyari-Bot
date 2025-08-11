@@ -135,6 +135,41 @@ class MusicCog(commands.Cog):
         except discord.HTTPException:
             pass
 
+    async def _connect_voice(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.VoiceChannel,
+        *,
+        ephemeral: bool = False,
+    ) -> Optional[discord.VoiceClient]:
+        """Connect to a voice channel with timeout and reconnect handling.
+
+        If already connected to a different channel, disconnect first before
+        attempting to reconnect.
+        """
+        voice = interaction.guild.voice_client
+        try:
+            if voice and voice.channel != channel:
+                await voice.disconnect(force=True)
+                voice = await channel.connect(reconnect=True, timeout=60)
+            elif not voice:
+                voice = await channel.connect(reconnect=True, timeout=60)
+        except asyncio.TimeoutError:
+            await self._safe_send(
+                interaction,
+                "Timed out trying to connect to the voice channel.",
+                ephemeral=ephemeral,
+            )
+            return None
+        except discord.DiscordException:
+            await self._safe_send(
+                interaction,
+                "Failed to connect to the voice channel.",
+                ephemeral=ephemeral,
+            )
+            return None
+        return voice
+
     # ---- Commands ----
     @app_commands.command(name="search", description="Search YouTube for music")
     @app_commands.describe(query="Search terms", page="Results page number")
@@ -169,6 +204,34 @@ class MusicCog(commands.Cog):
         ]
         message = f'Search results for "{query}" (page {page}):\n' + "\n".join(lines)
         await self._safe_send(interaction, message, ephemeral=ephemeral)
+
+    @app_commands.command(name="join", description="Join your voice channel")
+    async def join_command(self, interaction: discord.Interaction) -> None:
+        if not self._has_dj_role(interaction):
+            await self._safe_send(
+                interaction,
+                "You need the DJ role to use this command.",
+                ephemeral=True,
+            )
+            return
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            await self._safe_send(
+                interaction,
+                "Join a voice channel first.",
+                ephemeral=True,
+            )
+            return
+        ephemeral = interaction.channel.type == discord.ChannelType.private
+        await interaction.response.defer(ephemeral=ephemeral, thinking=True)
+        voice = await self._connect_voice(
+            interaction, interaction.user.voice.channel, ephemeral=ephemeral
+        )
+        if voice:
+            await self._safe_send(
+                interaction,
+                f"Joined {voice.channel.name}",
+                ephemeral=ephemeral,
+            )
 
     @app_commands.command(name="play", description="Queue a song or playlist by URL")
     async def play_command(self, interaction: discord.Interaction, url: str) -> None:
@@ -234,32 +297,11 @@ class MusicCog(commands.Cog):
                 ephemeral=ephemeral,
             )
             return
-        voice = interaction.guild.voice_client
+        voice = await self._connect_voice(
+            interaction, interaction.user.voice.channel, ephemeral=ephemeral
+        )
         if not voice:
-            channel = interaction.user.voice.channel
-            try:
-                voice = await channel.connect()
-            except discord.errors.ConnectionClosed:
-                # Discord occasionally closes the voice WebSocket with
-                # code 4006 (session invalid).  Give it one more attempt
-                # before reporting failure back to the user.
-                await asyncio.sleep(1)
-                try:
-                    voice = await channel.connect(reconnect=False)
-                except discord.DiscordException:
-                    await self._safe_send(
-                        interaction,
-                        "Failed to connect to the voice channel.",
-                        ephemeral=ephemeral,
-                    )
-                    return
-            except discord.DiscordException:
-                await self._safe_send(
-                    interaction,
-                    "Failed to connect to the voice channel.",
-                    ephemeral=ephemeral,
-                )
-                return
+            return
         queue = await self._get_queue(interaction.guild_id)
         queue.extend(songs)
         if len(songs) == 1:
