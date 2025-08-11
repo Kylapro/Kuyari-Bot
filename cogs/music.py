@@ -150,10 +150,15 @@ class MusicCog(commands.Cog):
         voice = interaction.guild.voice_client
         try:
             if voice and voice.channel != channel:
-                await voice.disconnect(force=True)
-                voice = await channel.connect(reconnect=True, timeout=60)
+                await voice.move_to(channel, timeout=60)
+                # Ensure the bot is always self-deafened when moving channels
+                await interaction.guild.change_voice_state(
+                    channel=channel, self_deaf=True, self_mute=False
+                )
             elif not voice:
-                voice = await channel.connect(reconnect=True, timeout=60)
+                voice = await channel.connect(
+                    reconnect=True, timeout=60, self_deaf=True
+                )
         except asyncio.TimeoutError:
             await self._safe_send(
                 interaction,
