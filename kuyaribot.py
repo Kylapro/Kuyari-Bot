@@ -8,6 +8,7 @@ from typing import Any, Literal, Optional
 
 from io import BytesIO
 import random
+import mimetypes
 import discord
 from discord.ext import commands
 import httpx
@@ -343,14 +344,14 @@ async def on_message(new_msg: discord.Message) -> None:
             if curr_node.text == None:
                 cleaned_content = curr_msg.content.removeprefix(discord_bot.user.mention).lstrip()
 
-                good_attachments = [
-                    att
-                    for att in curr_msg.attachments
-                    if att.content_type and any(att.content_type.startswith(x) for x in ("text", "image"))
-                ]
+                good_attachments = []
+                for att in curr_msg.attachments:
+                    ctype = att.content_type or mimetypes.guess_type(att.filename)[0]
+                    if ctype and ctype.startswith(("text", "image")):
+                        good_attachments.append((att, ctype))
 
                 attachment_responses = await asyncio.gather(
-                    *[httpx_client.get(att.url) for att in good_attachments]
+                    *[httpx_client.get(att.url) for att, _ in good_attachments]
                 )
 
                 embed_urls = []
@@ -376,8 +377,8 @@ async def on_message(new_msg: discord.Message) -> None:
                     ]
                     + [
                         resp.text
-                        for att, resp in zip(good_attachments, attachment_responses)
-                        if att.content_type.startswith("text")
+                        for (att, ctype), resp in zip(good_attachments, attachment_responses)
+                        if ctype.startswith("text")
                     ]
                 )
 
@@ -385,11 +386,11 @@ async def on_message(new_msg: discord.Message) -> None:
                     dict(
                         type="image_url",
                         image_url=dict(
-                            url=f"data:{att.content_type};base64,{b64encode(resp.content).decode('utf-8')}"
+                            url=f"data:{ctype};base64,{b64encode(resp.content).decode('utf-8')}"
                         ),
                     )
-                    for att, resp in zip(good_attachments, attachment_responses)
-                    if att.content_type.startswith("image")
+                    for (att, ctype), resp in zip(good_attachments, attachment_responses)
+                    if ctype.startswith("image")
                 ] + [
                     dict(
                         type="image_url",
