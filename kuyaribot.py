@@ -383,7 +383,7 @@ async def on_message(new_msg: discord.Message) -> None:
 
                 curr_node.images = [
                     dict(
-                        type="image_url",
+                        type="input_image",
                         image_url=dict(
                             url=f"data:{att.content_type};base64,{b64encode(resp.content).decode('utf-8')}"
                         ),
@@ -392,7 +392,7 @@ async def on_message(new_msg: discord.Message) -> None:
                     if att.content_type.startswith("image")
                 ] + [
                     dict(
-                        type="image_url",
+                        type="input_image",
                         image_url=dict(
                             url=f"data:{resp.headers.get('content-type', 'image/gif')};base64,{b64encode(resp.content).decode('utf-8')}"
                         ),
@@ -430,12 +430,12 @@ async def on_message(new_msg: discord.Message) -> None:
                     logging.exception("Error fetching next message in the chain")
                     curr_node.fetch_parent_failed = True
 
-            if curr_node.images[:max_images]:
-                content = ([dict(type="text", text=curr_node.text[:max_text])] if curr_node.text[:max_text] else []) + curr_node.images[:max_images]
-            else:
-                content = curr_node.text[:max_text]
+            content = []
+            if curr_node.text[:max_text]:
+                content.append(dict(type="input_text", text=curr_node.text[:max_text]))
+            content.extend(curr_node.images[:max_images])
 
-            if content != "":
+            if content:
                 message = dict(content=content, role=curr_node.role)
                 if accept_usernames and curr_node.user_id != None:
                     message["name"] = str(curr_node.user_id)
@@ -462,20 +462,17 @@ async def on_message(new_msg: discord.Message) -> None:
         if accept_usernames:
             system_prompt += "\nUser's names are their Discord IDs and should be typed as '<@ID>'."
 
-        messages.append(dict(role="system", content=system_prompt))
+        messages.append(dict(role="system", content=[{"type": "input_text", "text": system_prompt}]))
 
     reasoning_instruction = "Please reason step by step before giving the final answer."
     for msg in reversed(messages):
         if msg.get("role") == "user":
-            if isinstance(msg["content"], list):
-                for part in msg["content"]:
-                    if isinstance(part, dict) and part.get("type") == "text":
-                        part["text"] += "\n\n" + reasoning_instruction
-                        break
-                else:
-                    msg["content"].insert(0, {"type": "text", "text": reasoning_instruction})
+            for part in msg["content"]:
+                if isinstance(part, dict) and part.get("type") == "input_text":
+                    part["text"] += "\n\n" + reasoning_instruction
+                    break
             else:
-                msg["content"] += "\n\n" + reasoning_instruction
+                msg["content"].insert(0, {"type": "input_text", "text": reasoning_instruction})
             break
 
     # Generate and send response message(s) (can be multiple if response is long)
