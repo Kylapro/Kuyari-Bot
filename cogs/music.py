@@ -148,6 +148,15 @@ class MusicCog(commands.Cog):
         attempting to reconnect.
         """
         voice = interaction.guild.voice_client
+
+        # Clean up a stale voice client that might have lost its session
+        if voice and not voice.is_connected():
+            try:
+                await voice.disconnect(force=True)
+            except Exception:
+                pass
+            voice = None
+
         try:
             if voice and voice.channel != channel:
                 await voice.move_to(channel, timeout=60)
@@ -166,6 +175,32 @@ class MusicCog(commands.Cog):
                 ephemeral=ephemeral,
             )
             return None
+        except discord.errors.ConnectionClosed as e:
+            # Code 4006 indicates the session is invalid; force a fresh connect
+            if e.code == 4006:
+                if voice:
+                    try:
+                        await voice.disconnect(force=True)
+                    except Exception:
+                        pass
+                try:
+                    voice = await channel.connect(
+                        reconnect=True, timeout=60, self_deaf=True
+                    )
+                except Exception:
+                    await self._safe_send(
+                        interaction,
+                        "Failed to connect to the voice channel.",
+                        ephemeral=ephemeral,
+                    )
+                    return None
+            else:
+                await self._safe_send(
+                    interaction,
+                    "Failed to connect to the voice channel.",
+                    ephemeral=ephemeral,
+                )
+                return None
         except discord.DiscordException:
             await self._safe_send(
                 interaction,
