@@ -256,27 +256,22 @@ async def on_ready() -> None:
 @discord_bot.event
 async def on_message(new_msg: discord.Message) -> None:
     global last_task_time
-
     is_dm = new_msg.channel.type == discord.ChannelType.private
 
     if new_msg.author.bot:
         return
 
-    should_respond_passively = False
-    if not is_dm and discord_bot.user not in new_msg.mentions:
-        config = await asyncio.to_thread(get_config)
-        discord_bot.config = config
-        allow_passive = config.get("allow_passive_chat", False)
-        chance = config.get("passive_chat_probability", 0.0)
-
-        if allow_passive and random.random() < chance:
-            should_respond_passively = True
-
-        if not should_respond_passively:
-            return
-
     role_ids = set(role.id for role in getattr(new_msg.author, "roles", ()))
-    channel_ids = set(filter(None, (new_msg.channel.id, getattr(new_msg.channel, "parent_id", None), getattr(new_msg.channel, "category_id", None))))
+    channel_ids = set(
+        filter(
+            None,
+            (
+                new_msg.channel.id,
+                getattr(new_msg.channel, "parent_id", None),
+                getattr(new_msg.channel, "category_id", None),
+            ),
+        )
+    )
 
     config = await asyncio.to_thread(get_config)
     discord_bot.config = config
@@ -300,6 +295,33 @@ async def on_message(new_msg: discord.Message) -> None:
     is_bad_channel = not is_good_channel or any(id in blocked_channel_ids for id in channel_ids)
 
     if is_bad_user or is_bad_channel:
+        return
+    # Cache every incoming user message
+    curr_node = msg_nodes.setdefault(
+        new_msg.id,
+        MsgNode(
+            role="user",
+            user_id=new_msg.author.id,
+            parent_msg=getattr(new_msg.reference, "resolved", None),
+        ),
+    )
+    if curr_node.text is None:
+        curr_node.text = new_msg.content.removeprefix(discord_bot.user.mention).lstrip()
+
+    # Prune cache to avoid unbounded growth
+    if (num_nodes := len(msg_nodes)) > MAX_MESSAGE_NODES:
+        for msg_id in sorted(msg_nodes.keys())[: num_nodes - MAX_MESSAGE_NODES]:
+            async with msg_nodes.setdefault(msg_id, MsgNode()).lock:
+                msg_nodes.pop(msg_id, None)
+
+    should_respond = is_dm or discord_bot.user in new_msg.mentions
+    if not should_respond:
+        allow_passive = config.get("allow_passive_chat", False)
+        chance = config.get("passive_chat_probability", 0.0)
+        if allow_passive and random.random() < chance:
+            should_respond = True
+
+    if not should_respond:
         return
 
     if await maybe_handle_music_request(new_msg) or await maybe_handle_image_request(new_msg):
