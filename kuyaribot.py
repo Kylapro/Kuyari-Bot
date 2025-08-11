@@ -46,7 +46,7 @@ config = get_config()
 msg_nodes = {}
 last_task_time = 0
 
-intents = discord.Intents.default()
+intents = discord.Intents.all()
 intents.message_content = True
 intents.voice_states = True
 activity = discord.CustomActivity(name=(config["status_message"] or "github.com/kylapro/Kuyari-Bot")[:128])
@@ -257,10 +257,12 @@ async def on_ready() -> None:
 async def on_message(new_msg: discord.Message) -> None:
     global last_task_time
 
-    is_dm = new_msg.channel.type == discord.ChannelType.private
-
     if new_msg.author.bot:
         return
+
+    await discord_bot.process_commands(new_msg)
+
+    is_dm = new_msg.channel.type == discord.ChannelType.private
 
     should_respond_passively = False
     if not is_dm and discord_bot.user not in new_msg.mentions:
