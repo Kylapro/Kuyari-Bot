@@ -238,15 +238,25 @@ class MusicCog(commands.Cog):
         if not voice:
             channel = interaction.user.voice.channel
             try:
-                voice = await channel.connect()
-            except discord.errors.ConnectionClosed:
+                # Use reconnect=False to avoid discord.py's internal
+                # exponential backoff when the session is invalid.
+                voice = await channel.connect(reconnect=False)
+            except discord.errors.ConnectionClosed as exc:
                 # Discord occasionally closes the voice WebSocket with
-                # code 4006 (session invalid).  Give it one more attempt
+                # code 4006 (session invalid). Give it one more attempt
                 # before reporting failure back to the user.
-                await asyncio.sleep(1)
-                try:
-                    voice = await channel.connect(reconnect=False)
-                except discord.DiscordException:
+                if getattr(exc, "code", None) == 4006:
+                    await asyncio.sleep(1)
+                    try:
+                        voice = await channel.connect(reconnect=False)
+                    except discord.DiscordException:
+                        await self._safe_send(
+                            interaction,
+                            "Failed to connect to the voice channel.",
+                            ephemeral=ephemeral,
+                        )
+                        return
+                else:
                     await self._safe_send(
                         interaction,
                         "Failed to connect to the voice channel.",
