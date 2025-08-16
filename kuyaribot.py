@@ -433,8 +433,14 @@ async def on_message(new_msg: discord.Message) -> None:
 
             text_for_model = curr_node.text or ""
             if curr_node.role == "user":
-                author_name = getattr(curr_msg.author, "display_name", None) or str(curr_node.user_id or "Unknown")
-                text_for_model = f"{author_name}: {text_for_model}" if text_for_model else f"{author_name}:"
+                author_name = (
+                    getattr(curr_msg.author, "name", None)
+                    or getattr(curr_msg.author, "display_name", None)
+                    or str(curr_node.user_id or "Unknown")
+                )
+                text_for_model = (
+                    f"{author_name}: {text_for_model}" if text_for_model else f"{author_name}:"
+                )
             text_for_model = text_for_model[:max_text]
 
             if curr_node.images[:max_images]:
