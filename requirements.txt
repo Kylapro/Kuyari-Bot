@@ -6,3 +6,4 @@ yt-dlp
 browser-cookie3
 PyNaCl
 ffmpeg
+google-cloud-videointelligence

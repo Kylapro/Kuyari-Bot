@@ -49,6 +49,7 @@ last_task_time = 0
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
+intents.members = True
 activity = discord.CustomActivity(name=(config["status_message"] or "github.com/kylapro/Kuyari-Bot")[:128])
 discord_bot = commands.Bot(intents=intents, activity=activity, command_prefix=None)
 
@@ -430,10 +431,16 @@ async def on_message(new_msg: discord.Message) -> None:
                     logging.exception("Error fetching next message in the chain")
                     curr_node.fetch_parent_failed = True
 
+            text_for_model = curr_node.text or ""
+            if curr_node.role == "user":
+                author_name = getattr(curr_msg.author, "display_name", None) or str(curr_node.user_id or "Unknown")
+                text_for_model = f"{author_name}: {text_for_model}" if text_for_model else f"{author_name}:"
+            text_for_model = text_for_model[:max_text]
+
             if curr_node.images[:max_images]:
-                content = ([dict(type="text", text=curr_node.text[:max_text])] if curr_node.text[:max_text] else []) + curr_node.images[:max_images]
+                content = ([dict(type="text", text=text_for_model)] if text_for_model else []) + curr_node.images[:max_images]
             else:
-                content = curr_node.text[:max_text]
+                content = text_for_model
 
             if content != "":
                 message = dict(content=content, role=curr_node.role)
@@ -464,7 +471,7 @@ async def on_message(new_msg: discord.Message) -> None:
 
         messages.append(dict(role="system", content=system_prompt))
 
-    reasoning_instruction = "Please reason step by step before giving the final answer."
+    reasoning_instruction = ""
     for msg in reversed(messages):
         if msg.get("role") == "user":
             if isinstance(msg["content"], list):
